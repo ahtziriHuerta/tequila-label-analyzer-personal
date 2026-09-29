@@ -42,8 +42,8 @@ Abre http://127.0.0.1:8000/docs para ver la API.
 | Persona | Área principal |
 |---|---|
 | Marcos | Frontend / UX |
-| Manuel | Backend, OCR, motor de reglas (sugerido) |
-| Atsiri | Base de datos, reportes, integración (sugerido) |
+| Atziri | Backend, OCR, motor de reglas (sugerido) |
+| Manuel | Base de datos, reportes, integración (sugerido) |
 
 Flujo de trabajo: ver [CONTRIBUTING.md](CONTRIBUTING.md).
 
