@@ -1,0 +1,5 @@
+:root { --verde:#4f6b3d; --azul:#0b4a6f; --fondo:#f4f6f8; }
+body { font-family: system-ui, sans-serif; background: var(--fondo); margin: 0; }
+.app { max-width: 480px; margin: 0 auto; padding: 24px; }
+h1 { color: var(--azul); }
+button { background: var(--azul); color: #fff; border: 0; border-radius: 10px; padding: 14px 20px; font-size: 1rem; width: 100%; }

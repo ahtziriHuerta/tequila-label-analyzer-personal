@@ -1,0 +1,23 @@
+# Secretos (NUNCA subir)
+.env
+*.pem
+*.key
+credentials*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Imágenes subidas en pruebas locales
+backend/uploads/
+*.jpg
+*.jpeg
+*.png
+!frontend/assets/**
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

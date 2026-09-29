@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+opencv-python-headless
+pytesseract
+pillow
+pymysql
+sqlalchemy
+reportlab
+pytest
