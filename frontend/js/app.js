@@ -1,5 +1,5 @@
 
-const API = "http://127.0.0.1:8000";
+const API = "http://127.0.0.1:8001";
 
 // ==========================================
 // ELEMENTOS DEL HTML
@@ -450,10 +450,10 @@ async function consultarAnalisis(id) {
     });
 
     // Mostrar fotografías asociadas al análisis.
-    mostrarGaleria(
-      datos.imagenes || [],
-      datos.detecciones || []
-    );
+   mostrarGaleria(
+     datos.imagenes || [],
+     datos.evidencias || []
+   ); 
 
   } catch (err) {
     console.error("Error al consultar análisis:", err);
@@ -488,7 +488,7 @@ async function cargarGaleriaDeAnalisis(id) {
 
     mostrarGaleria(
       datos.imagenes || [],
-      datos.detecciones || []
+      datos.evidencias || []
     );
 
   } catch (err) {
@@ -538,7 +538,7 @@ function mostrarAvisoGaleria(mensaje) {
 // MOSTRAR GALERÍA DE FOTOGRAFÍAS
 // ==========================================
 
-function mostrarGaleria(imagenes, detecciones) {
+function mostrarGaleria(imagenes, evidencias) {
   if (!galeriaEvidencias || !listaEvidencias) {
     console.error(
       "Falta galeria-evidencias o lista-evidencias en HTML."
@@ -620,10 +620,10 @@ console.log("Contenedor de imágenes:", listaEvidencias);
 
     // Detecciones vinculadas a la fotografía
     const reglasEncontradas = (
-      Array.isArray(detecciones) ? detecciones : []
-    ).filter(deteccion =>
-      Number(deteccion.imagen_id) === Number(imagen.id) &&
-      deteccion.estado === "Detectado"
+      Array.isArray(evidencias) ? evidencias : []
+    ).filter(evidencia =>
+      Number(evidencia.imagen_id) === Number(imagen.id) &&
+      evidencia.estado === "Detectado"
     );
 
     const listaReglas = document.createElement("div");
@@ -638,12 +638,12 @@ console.log("Contenedor de imágenes:", listaEvidencias);
       listaReglas.appendChild(aviso);
 
     } else {
-      reglasEncontradas.forEach(deteccion => {
+      reglasEncontradas.forEach(evidencia => {
         const elemento = document.createElement("span");
 
         elemento.textContent =
-          `${deteccion.codigo_regla}: ` +
-          `${deteccion.valor ?? "Detectado"}`;
+          `${evidencia.codigo_regla}: ` +
+          `${evidencia.valor_detectado ?? "Detectado"}`;
 
         listaReglas.appendChild(elemento);
       });

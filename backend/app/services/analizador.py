@@ -54,54 +54,50 @@ def analizar_imagenes(rutas_imagenes: list) -> dict:
 
         confianzas.append(resultado["confianza"])
 
+ 
     # ==========================================
     # 2. EVIDENCIAS TEXTUALES POR FOTOGRAFÍA
     # ==========================================
 
-    evidencias = {}
-
-    terminos_por_regla = {
-        "ET-01": [
-            "TEQUILA",
-        ],
-        "ET-02": [
-            "100% DE AGAVE",
-            "100 % DE AGAVE",
-            "100% AGAVE",
-            "100 % AGAVE",
-        ],
-        "ET-03": [
-            "EXTRA ANEJO",
-            "REPOSADO",
-            "ANEJO",
-            "BLANCO",
-            "PLATA",
-            "JOVEN",
-            "ORO",
-        ],
+    evidencias = {
+        "ET-01": [],
+        "ET-02": [],
+        "ET-03": [],
     }
 
-    for codigo, terminos in terminos_por_regla.items():
+    funciones_textuales = {
+        "ET-01": detectar_denominacion,
+        "ET-02": detectar_categoria,
+        "ET-03": detectar_clase,
+    }
 
-        evidencias[codigo] = []
+    for indice, imagen in enumerate(resultados_imagenes):
+        texto_imagen = imagen["texto_normalizado"]
+        confianza = imagen["confianza"]
 
-        for indice, imagen in enumerate(resultados_imagenes):
+        for codigo, funcion in funciones_textuales.items():
+            deteccion = funcion(
+                texto_imagen,
+                confianza_ocr=confianza
+            )
 
-            texto_imagen = imagen["texto_normalizado"]
+            if codigo == "ET-01":
+                estado = deteccion
+                valor = "TEQUILA" if estado == "Detectado" else None
+            else:
+                estado = deteccion["estado"]
+                valor = deteccion["valor"]
 
-            encontrados = [
-                termino
-                for termino in terminos
-                if termino in texto_imagen
-            ]
-
-            if encontrados:
-
+            if estado == "Detectado" or (
+                estado == "Revisión manual" and valor is not None
+            ):
                 evidencias[codigo].append({
                     "numero_imagen": indice + 1,
                     "archivo": imagen["archivo"],
-                    "texto_detectado": encontrados,
+                    "valor_detectado": valor,
+                    "estado": estado,
                 })
+ 
 
     # ==========================================
     # 3. EVIDENCIAS DE VALORES NUMÉRICOS

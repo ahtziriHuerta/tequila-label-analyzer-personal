@@ -97,9 +97,8 @@ def registrar_reglas(conexion, reglas):
             )
         )
 
-
 def guardar_resultado(conexion, resultado, rutas):
-    """Guardar análisis, imágenes y detecciones."""
+    """Guardar análisis, imágenes, detecciones y evidencias."""
 
     usuario_id = obtener_usuario_sistema(conexion)
 
@@ -113,7 +112,10 @@ def guardar_resultado(conexion, resultado, rutas):
 
     analisis_id = cursor.lastrowid
 
-    # Relacionar número de fotografía con ID de SQLite.
+    # ==========================================
+    # 1. GUARDAR FOTOGRAFÍAS
+    # ==========================================
+
     ids_imagenes = {}
 
     for indice, imagen in enumerate(resultado["imagenes"]):
@@ -142,12 +144,19 @@ def guardar_resultado(conexion, resultado, rutas):
 
         ids_imagenes[indice + 1] = cursor.lastrowid
 
+    # ==========================================
+    # 2. REGISTRAR REGLAS
+    # ==========================================
+
     registrar_reglas(
         conexion,
         resultado["reglas"]
     )
 
-    # Guardar un resultado por regla.
+    # ==========================================
+    # 3. GUARDAR DETECCIONES GENERALES
+    # ==========================================
+
     for codigo, regla in resultado["reglas"].items():
 
         evidencias = resultado["evidencias"].get(
@@ -161,7 +170,7 @@ def guardar_resultado(conexion, resultado, rutas):
             numero_imagen = evidencias[0]["numero_imagen"]
             imagen_id = ids_imagenes.get(numero_imagen)
 
-        conexion.execute(
+        cursor = conexion.execute(
             """
             INSERT INTO detecciones (
                 analisis_id,
@@ -185,10 +194,52 @@ def guardar_resultado(conexion, resultado, rutas):
             )
         )
 
+        deteccion_id = cursor.lastrowid
+
+        # ==========================================
+        # 4. GUARDAR EVIDENCIAS POR FOTOGRAFÍA
+        # ==========================================
+
+        for evidencia in evidencias:
+
+            imagen_evidencia_id = ids_imagenes.get(
+                evidencia["numero_imagen"]
+            )
+
+            if imagen_evidencia_id is None:
+                continue
+
+            valor_detectado = evidencia.get(
+                "valor_detectado"
+            )
+
+            conexion.execute(
+                """
+                INSERT INTO evidencias (
+                    deteccion_id,
+                    imagen_id,
+                    valor_detectado,
+                    estado
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    deteccion_id,
+                    imagen_evidencia_id,
+                    (
+                        str(valor_detectado)
+                        if valor_detectado is not None
+                        else None
+                    ),
+                    evidencia["estado"]
+                )
+            )
+
     return analisis_id
 
-
 @router.post("/")
+
+
 def crear_analisis():
     """
     Endpoint provisional.
@@ -425,12 +476,41 @@ def obtener_analisis(analisis_id: int):
             (analisis_id,)
         ).fetchall()
 
+        # ==========================================
+        # CONSULTAR EVIDENCIAS POR FOTOGRAFÍA
+        # ==========================================
+
+        evidencias = conexion.execute(
+            """
+            SELECT
+                e.id,
+                e.deteccion_id,
+                e.imagen_id,
+                d.codigo_regla,
+                e.valor_detectado,
+                e.estado
+            FROM evidencias e
+            JOIN detecciones d
+                ON d.id = e.deteccion_id
+            WHERE d.analisis_id = ?
+            ORDER BY e.imagen_id, d.codigo_regla
+            """,
+            (analisis_id,)
+        ).fetchall()
+
     return {
         "analisis": dict(analisis),
-        "imagenes": [dict(imagen) for imagen in imagenes],
+        "imagenes": [
+            dict(imagen)
+            for imagen in imagenes
+        ],
         "detecciones": [
             dict(deteccion)
             for deteccion in detecciones
+        ],
+        "evidencias": [
+            dict(evidencia)
+            for evidencia in evidencias
         ]
     }
 
