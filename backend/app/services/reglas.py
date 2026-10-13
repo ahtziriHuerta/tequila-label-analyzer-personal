@@ -43,16 +43,14 @@ def detectar_denominacion(
     confianza_ocr: Optional[float] = None
 ) -> str:
     """
-    ET-01: detectar la denominación TEQUILA.
+    ET-01: Detectar la denominación TEQUILA
+    como palabra completa.
     """
 
-    if "TEQUILA" in texto_normalizado:
+    if re.search(r"\bTEQUILA\b", texto_normalizado):
         return "Detectado"
 
-    if (
-        confianza_ocr is not None
-        and confianza_ocr < 60
-    ):
+    if confianza_ocr is not None and confianza_ocr < 60:
         return "Baja legibilidad"
 
     return "No localizado"
@@ -63,34 +61,37 @@ def detectar_categoria(
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-02: detectar categoría.
+    ET-02: Identificar la categoría del tequila.
+    No inferir categoría por ausencia de información.
     """
 
-    patrones_100_agave = [
-        "100% DE AGAVE",
-        "100 % DE AGAVE",
-        "100% AGAVE",
-        "100 % AGAVE",
-    ]
+    texto = normalizar(texto_normalizado)
 
-    for patron in patrones_100_agave:
-        if patron in texto_normalizado:
-            return {
-                "estado": "Detectado",
-                "valor": "100% de agave"
-            }
+    patron_agave = (
+        r"\b100\s*%\s*"
+        r"(?:DE\s+)?AGAVE\b"
+    )
 
-    if (
-        confianza_ocr is not None
-        and confianza_ocr < 60
-    ):
+    if re.search(patron_agave, texto):
+        return {
+            "estado": "Detectado",
+            "valor": "100% de agave"
+        }
+
+    if confianza_ocr is not None and confianza_ocr < 60:
         return {
             "estado": "Baja legibilidad",
             "valor": None
         }
 
+    if re.search(r"\bTEQUILA\b", texto):
+        return {
+            "estado": "Revisión manual",
+            "valor": None
+        }
+
     return {
-        "estado": "Revisión manual",
+        "estado": "No localizado",
         "valor": None
     }
 
@@ -100,30 +101,44 @@ def detectar_clase(
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-03: detectar la clase del tequila.
+    ET-03: Detectar la clase del tequila.
+    Evita coincidencias parciales y detecta
+    clases diferentes en un mismo análisis.
     """
 
-    clases = [
-        ("EXTRA ANEJO", "Extra añejo"),
-        ("REPOSADO", "Reposado"),
-        ("ANEJO", "Añejo"),
-        ("BLANCO", "Blanco"),
-        ("PLATA", "Blanco"),
-        ("JOVEN", "Joven"),
-        ("ORO", "Joven"),
+    texto = normalizar(texto_normalizado)
+
+    patrones = [
+        (r"\bEXTRA\s+ANEJO\b", "Extra añejo"),
+        (r"\bREPOSADO\b", "Reposado"),
+        (r"\bANEJO\b", "Añejo"),
+        (r"\bBLANCO\b|\bPLATA\b", "Blanco"),
+        (r"\bJOVEN\b|\bORO\b", "Joven"),
     ]
 
-    for termino, valor in clases:
-        if termino in texto_normalizado:
-            return {
-                "estado": "Detectado",
-                "valor": valor
-            }
+    encontrados = []
 
-    if (
-        confianza_ocr is not None
-        and confianza_ocr < 60
-    ):
+    for patron, clase in patrones:
+        if re.search(patron, texto):
+            encontrados.append(clase)
+
+    # EXTRA AÑEJO no debe contarse también como AÑEJO.
+    if "Extra añejo" in encontrados and "Añejo" in encontrados:
+        encontrados.remove("Añejo")
+
+    if len(encontrados) == 1:
+        return {
+            "estado": "Detectado",
+            "valor": encontrados[0]
+        }
+
+    if len(encontrados) > 1:
+        return {
+            "estado": "Revisión manual",
+            "valor": ", ".join(encontrados)
+        }
+
+    if confianza_ocr is not None and confianza_ocr < 60:
         return {
             "estado": "Baja legibilidad",
             "valor": None
