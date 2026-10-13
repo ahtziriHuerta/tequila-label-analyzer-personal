@@ -305,6 +305,34 @@ def detectar_graduacion_alcoholica(
                 )
             }
 
+        # Posible omisión de la letra L por parte del OCR:
+    # "38% Ac Vol." en lugar de "38% Alc. Vol."
+    patron_ac_vol = (
+        r"(?<![A-Z0-9])"
+        r"(\d{1,2}(?:[.,]\d{1,2})?)"
+        r"\s*%\s*"
+        r"AC\.?\s*[/.-]?\s*VOL\.?"
+        r"(?![A-Z0-9])"
+    )
+
+    coincidencias_ac_vol = re.findall(patron_ac_vol, texto)
+
+    if coincidencias_ac_vol:
+        valores_ac_vol = sorted({
+            float(valor.replace(",", "."))
+            for valor in coincidencias_ac_vol
+            if 0 < float(valor.replace(",", ".")) <= 100
+        })
+
+        if valores_ac_vol:
+            return {
+                "estado": "Revisión manual",
+                "valor": ", ".join(
+                    f"{valor:g}% Ac. Vol. (verificar en fotografía)"
+                    for valor in valores_ac_vol
+                )
+            }
+
     if confianza_ocr is not None and confianza_ocr < 60:
         return {
             "estado": "Baja legibilidad",
