@@ -149,28 +149,33 @@ def detectar_clase(
         "valor": None
     }
 
+
 def detectar_contenido_neto(
     texto_normalizado: str,
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-05: localizar el contenido neto declarado.
+    ET-05: Detectar contenido neto.
 
     Ejemplos:
-    750 ML, 700 ML, 1 L, 1.5 L.
+    750 ML
+    700 ML
+    1 L
+    1.5 L
+
+    Evita coincidencias parciales como ML2026.
     """
+
+    texto = normalizar(texto_normalizado)
 
     patron = (
         r"(?<![A-Z0-9])"
         r"(\d{1,4}(?:[.,]\d{1,3})?)"
         r"\s*(ML|LITROS?|L)"
-        r"(?![A-Z])"
+        r"(?![A-Z0-9])"
     )
 
-    coincidencias = re.findall(
-        patron,
-        texto_normalizado
-    )
+    coincidencias = re.findall(patron, texto)
 
     valores = []
 
@@ -185,17 +190,15 @@ def detectar_contenido_neto(
         if 50 <= mililitros <= 5000:
             valores.append(mililitros)
 
-    if valores:
-        valores_unicos = sorted(set(valores))
+    valores_unicos = sorted(set(valores))
 
-        if len(valores_unicos) == 1:
-            cantidad = valores_unicos[0]
+    if len(valores_unicos) == 1:
+        return {
+            "estado": "Detectado",
+            "valor": f"{valores_unicos[0]:g} mL"
+        }
 
-            return {
-                "estado": "Detectado",
-                "valor": f"{cantidad:g} mL"
-            }
-
+    if len(valores_unicos) > 1:
         return {
             "estado": "Revisión manual",
             "valor": ", ".join(
@@ -215,34 +218,48 @@ def detectar_contenido_neto(
         "valor": None
     }
 
+
+
 def detectar_graduacion_alcoholica(
     texto_normalizado: str,
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-07: detectar el porcentaje de alcohol declarado.
+    ET-07: Detecta graduación alcohólica.
+
+    Formatos aceptados:
+    - 40% Alc. Vol.
+    - 38 % ALC/VOL
+    - 35% VOL
+    - 40% DE ALCOHOL
+
+    Evita coincidencias parciales como:
+    - 40% ALC/VOL2026
     """
 
+    texto = normalizar(texto_normalizado)
+
     patron = (
-        r"(?<![\d])"
+        r"(?<![A-Z0-9])"
         r"(\d{1,2}(?:[.,]\d{1,2})?)"
         r"\s*%\s*"
-        r"(?:ALC\.?\s*[/.-]?\s*VOL\.?|VOL\.?)"
-        r"(?![A-Z])"
+        r"(?:"
+        r"ALC\.?\s*[/.-]?\s*VOL\.?"
+        r"|VOL\.?"
+        r"|DE\s+ALCOHOL"
+        r")"
+        r"(?![A-Z0-9])"
     )
 
-    coincidencias = re.findall(
-        patron,
-        texto_normalizado
-    )
+    coincidencias = re.findall(patron, texto)
 
     valores = []
 
     for cantidad in coincidencias:
-        porcentaje = float(cantidad.replace(",", "."))
+        numero = float(cantidad.replace(",", "."))
 
-        if 0 < porcentaje <= 100:
-            valores.append(porcentaje)
+        if 0 < numero <= 100:
+            valores.append(numero)
 
     valores_unicos = sorted(set(valores))
 
@@ -256,7 +273,7 @@ def detectar_graduacion_alcoholica(
         return {
             "estado": "Revisión manual",
             "valor": ", ".join(
-                f"{valor:g}%"
+                f"{valor:g}% Alc. Vol."
                 for valor in valores_unicos
             )
         }
