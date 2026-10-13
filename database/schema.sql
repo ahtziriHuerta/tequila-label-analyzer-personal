@@ -95,6 +95,35 @@ CREATE TABLE IF NOT EXISTS detecciones (
         ON DELETE RESTRICT
 );
 
+-- ==========================================
+-- EVIDENCIAS POR FOTOGRAFÍA
+-- ==========================================
+
+-- ==========================================
+-- EVIDENCIAS POR FOTOGRAFIA
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS evidencias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deteccion_id INTEGER NOT NULL,
+    imagen_id INTEGER NOT NULL,
+    valor_detectado TEXT,
+    estado TEXT NOT NULL,
+
+    FOREIGN KEY (deteccion_id)
+        REFERENCES detecciones(id)
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (imagen_id)
+        REFERENCES imagenes(id)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidencias_deteccion
+ON evidencias(deteccion_id);
+
+CREATE INDEX IF NOT EXISTS idx_evidencias_imagen
+ON evidencias(imagen_id);
 
 -- ==========================================
 -- INDICES
