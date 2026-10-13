@@ -88,7 +88,7 @@ def test_salud_informa_el_motor_ocr(cliente):
     datos = cliente.get("/salud").json()
 
     assert datos["estado"] == "ok"
-    assert datos["ocr"] == "tesseract"
+    assert datos["ocr"] in ("paddleocr", "tesseract")
     assert "ocr_disponible" in datos
 
 

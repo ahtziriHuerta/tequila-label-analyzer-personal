@@ -2,7 +2,19 @@ from __future__ import annotations
 
 """Servicio para analizar múltiples imágenes de una misma botella."""
 
-from app.services.ocr import extraer_texto
+from app.services.ocr import extraer_texto as extraer_texto_tesseract
+
+
+def extraer_texto(ruta):
+    """Usa PaddleOCR y recurre a Tesseract si falla."""
+    try:
+        from app.services.paddle_ocr import extraer_texto_paddle
+        return extraer_texto_paddle(ruta)
+    except Exception as error:
+        print(f"PaddleOCR falló: {error}")
+        print("Utilizando Tesseract como respaldo...")
+        return extraer_texto_tesseract(ruta)
+
 from app.services.reglas import (
     normalizar,
     detectar_denominacion,
@@ -67,7 +79,7 @@ def analizar_imagenes(
 
         confianzas.append(resultado["confianza"])
 
- 
+
     # ==========================================
     # 2. EVIDENCIAS TEXTUALES POR FOTOGRAFÍA
     # ==========================================
@@ -110,7 +122,7 @@ def analizar_imagenes(
                     "valor_detectado": valor,
                     "estado": estado,
                 })
- 
+
 
     # ==========================================
     # 3. EVIDENCIAS DE VALORES NUMÉRICOS

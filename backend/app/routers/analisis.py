@@ -23,10 +23,20 @@ router = APIRouter(
 BASE_DIR = Path(__file__).resolve().parents[3]
 
 # Base de datos SQLite.
-DATABASE_PATH = BASE_DIR / "database" / "tequila.db"
+DATABASE_PATH = Path(
+    os.environ.get(
+        "TEQUILA_DB_PATH",
+        str(BASE_DIR / "database" / "tequila.db")
+    )
+)
 
 # Directorio donde se conservarán las fotografías.
-UPLOADS_DIR = BASE_DIR / "backend" / "uploads"
+UPLOADS_DIR = Path(
+    os.environ.get(
+        "TEQUILA_UPLOADS_DIR",
+        str(BASE_DIR / "backend" / "uploads")
+    )
+).resolve()
 
 UPLOADS_DIR.mkdir(
     parents=True,

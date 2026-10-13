@@ -1,4 +1,4 @@
-
+import os
 from pathlib import Path
 import sqlite3
 
@@ -21,10 +21,19 @@ app = FastAPI(
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-DATABASE_PATH = BASE_DIR / "database" / "tequila.db"
+DATABASE_PATH = Path(
+    os.environ.get(
+        "TEQUILA_DB_PATH",
+        str(BASE_DIR / "database" / "tequila.db")
+    )
+)
 
-UPLOADS_DIR = (
-    BASE_DIR / "backend" / "uploads"
+
+UPLOADS_DIR = Path(
+    os.environ.get(
+        "TEQUILA_UPLOADS_DIR",
+        str(BASE_DIR / "backend" / "uploads")
+    )
 ).resolve()
 
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -58,27 +67,43 @@ app.include_router(analisis.router)
 
 @app.get("/salud")
 def salud():
-    """
-    Estado del backend y del motor OCR.
+    """Estado del backend y disponibilidad de los motores OCR."""
 
-    La pantalla de Configuración lo usa para avisar
-    si Tesseract no está instalado.
-    """
-
+    # Verificar PaddleOCR sin cargar los modelos.
     try:
-        version_ocr = str(pytesseract.get_tesseract_version())
-        idiomas = pytesseract.get_languages()
+        import importlib.util
+        paddle_disponible = (
+            importlib.util.find_spec("paddleocr") is not None
+            and importlib.util.find_spec("paddle") is not None
+        )
     except Exception:
-        version_ocr = None
+        paddle_disponible = False
+
+    # Verificar Tesseract como motor de respaldo.
+    try:
+        version_tesseract = str(pytesseract.get_tesseract_version())
+        idiomas = pytesseract.get_languages()
+        tesseract_disponible = {"spa", "eng"} <= set(idiomas)
+    except Exception:
+        version_tesseract = None
         idiomas = []
+        tesseract_disponible = False
+
+    motor = (
+        "paddleocr" if paddle_disponible
+        else "tesseract" if tesseract_disponible
+        else None
+    )
 
     return {
         "estado": "ok",
-        "ocr": "tesseract",
-        # El OCR usa lang="spa+eng" (services/ocr.py).
-        "ocr_disponible": {"spa", "eng"} <= set(idiomas),
-        "ocr_version": version_ocr,
+        "ocr": motor,
+        "ocr_disponible": motor is not None,
+        "ocr_version": "PaddleOCR" if motor == "paddleocr" else version_tesseract,
         "ocr_idiomas": idiomas,
+        "paddleocr_disponible": paddle_disponible,
+        "tesseract_disponible": tesseract_disponible,
+        "tesseract_version": version_tesseract,
     }
 
 

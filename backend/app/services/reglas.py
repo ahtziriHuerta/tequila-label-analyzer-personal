@@ -69,7 +69,7 @@ def detectar_categoria(
 
     patron_agave = (
         r"\b100\s*%\s*"
-        r"(?:DE\s+)?AGAVE\b"
+        r"(?:DE\s*)?AGAVE\b"
     )
 
     if re.search(patron_agave, texto):
@@ -277,6 +277,33 @@ def detectar_graduacion_alcoholica(
                 for valor in valores_unicos
             )
         }
+        # Posible confusión OCR entre VOL y VAL.
+    # Recuperamos el porcentaje, pero exigimos revisión manual.
+    patron_val = (
+        r"(?<![A-Z0-9])"
+        r"(\d{1,2}(?:[.,]\d{1,2})?)"
+        r"\s*%\s*"
+        r"ALC\.?\s*[/.-]?\s*VAL\.?"
+        r"(?![A-Z0-9])"
+    )
+
+    coincidencias_val = re.findall(patron_val, texto)
+
+    if coincidencias_val:
+        valores_val = sorted({
+            float(valor.replace(",", "."))
+            for valor in coincidencias_val
+            if 0 < float(valor.replace(",", ".")) <= 100
+        })
+
+        if valores_val:
+            return {
+                "estado": "Revisión manual",
+                "valor": ", ".join(
+                    f"{valor:g}% Alc. Val. (verificar en fotografía)"
+                    for valor in valores_val
+                )
+            }
 
     if confianza_ocr is not None and confianza_ocr < 60:
         return {
