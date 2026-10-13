@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 """Servicio para analizar múltiples imágenes de una misma botella."""
 
@@ -12,7 +13,10 @@ from app.services.reglas import (
 )
 
 
-def analizar_imagenes(rutas_imagenes: list) -> dict:
+def analizar_imagenes(
+    rutas_imagenes: list,
+    ocr_previo: dict | None = None
+) -> dict:
     """
     Analiza múltiples fotografías de una misma botella.
 
@@ -25,7 +29,13 @@ def analizar_imagenes(rutas_imagenes: list) -> dict:
 
     Los resultados representan detecciones automáticas,
     no una certificación de cumplimiento normativo.
+
+    ocr_previo: resultados de OCR ya guardados ({ruta: resultado}).
+    Al agregar evidencia solo se lee la foto nueva; las demás
+    reutilizan su texto en lugar de volver a pasar por Tesseract.
     """
+
+    ocr_previo = ocr_previo or {}
 
     resultados_imagenes = []
     textos = []
@@ -37,7 +47,10 @@ def analizar_imagenes(rutas_imagenes: list) -> dict:
 
     for ruta in rutas_imagenes:
 
-        resultado = extraer_texto(ruta)
+        resultado = (
+            ocr_previo.get(ruta)
+            or extraer_texto(ruta)
+        )
 
         resultados_imagenes.append({
             "archivo": ruta,

@@ -97,8 +97,9 @@ def registrar_reglas(conexion, reglas):
             )
         )
 
+
 def guardar_resultado(conexion, resultado, rutas):
-    """Guardar análisis, imágenes, detecciones y evidencias."""
+    """Guardar análisis, imágenes y detecciones."""
 
     usuario_id = obtener_usuario_sistema(conexion)
 
@@ -112,10 +113,7 @@ def guardar_resultado(conexion, resultado, rutas):
 
     analisis_id = cursor.lastrowid
 
-    # ==========================================
-    # 1. GUARDAR FOTOGRAFÍAS
-    # ==========================================
-
+    # Relacionar número de fotografía con ID de SQLite.
     ids_imagenes = {}
 
     for indice, imagen in enumerate(resultado["imagenes"]):
@@ -144,18 +142,28 @@ def guardar_resultado(conexion, resultado, rutas):
 
         ids_imagenes[indice + 1] = cursor.lastrowid
 
-    # ==========================================
-    # 2. REGISTRAR REGLAS
-    # ==========================================
+    guardar_detecciones(
+        conexion,
+        analisis_id,
+        resultado,
+        ids_imagenes
+    )
+
+    return analisis_id
+
+
+def guardar_detecciones(conexion, analisis_id, resultado, ids_imagenes):
+    """
+    Guardar un resultado por regla.
+
+    ids_imagenes relaciona el número de fotografía
+    (1, 2, 3...) con su ID en SQLite.
+    """
 
     registrar_reglas(
         conexion,
         resultado["reglas"]
     )
-
-    # ==========================================
-    # 3. GUARDAR DETECCIONES GENERALES
-    # ==========================================
 
     for codigo, regla in resultado["reglas"].items():
 
@@ -194,14 +202,10 @@ def guardar_resultado(conexion, resultado, rutas):
             )
         )
 
+        # Guardar evidencias de cada fotografía.
         deteccion_id = cursor.lastrowid
 
-        # ==========================================
-        # 4. GUARDAR EVIDENCIAS POR FOTOGRAFÍA
-        # ==========================================
-
         for evidencia in evidencias:
-
             imagen_evidencia_id = ids_imagenes.get(
                 evidencia["numero_imagen"]
             )
@@ -209,9 +213,7 @@ def guardar_resultado(conexion, resultado, rutas):
             if imagen_evidencia_id is None:
                 continue
 
-            valor_detectado = evidencia.get(
-                "valor_detectado"
-            )
+            valor_detectado = evidencia.get("valor_detectado")
 
             conexion.execute(
                 """
@@ -226,20 +228,89 @@ def guardar_resultado(conexion, resultado, rutas):
                 (
                     deteccion_id,
                     imagen_evidencia_id,
-                    (
-                        str(valor_detectado)
-                        if valor_detectado is not None
-                        else None
-                    ),
+                    str(valor_detectado) if valor_detectado is not None else None,
                     evidencia["estado"]
                 )
             )
 
-    return analisis_id
+
+EXTENSIONES_PERMITIDAS = {
+    ".jpg", ".jpeg", ".png",
+    ".webp", ".bmp", ".tif", ".tiff"
+}
+
+ESTADO_FINALIZADO = "Finalizado"
+
+
+def guardar_archivo(archivo: UploadFile) -> str:
+    """Validar una fotografía y conservarla en uploads."""
+
+    if (
+        not archivo.content_type
+        or not archivo.content_type.startswith("image/")
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{archivo.filename} "
+                "no es una imagen válida."
+            )
+        )
+
+    extension = Path(
+        archivo.filename or ""
+    ).suffix.lower()
+
+    if extension not in EXTENSIONES_PERMITIDAS:
+        raise HTTPException(
+            status_code=400,
+            detail="Formato de imagen no permitido."
+        )
+
+    ruta_destino = UPLOADS_DIR / f"{uuid.uuid4().hex}{extension}"
+
+    with open(ruta_destino, "wb") as destino:
+        shutil.copyfileobj(
+            archivo.file,
+            destino
+        )
+
+    return str(ruta_destino)
+
+
+def obtener_analisis_abierto(conexion, analisis_id):
+    """
+    Recuperar un análisis que todavía admite cambios.
+
+    Un análisis finalizado queda en solo lectura:
+    no acepta fotografías ni revisiones nuevas.
+    """
+
+    analisis = conexion.execute(
+        """
+        SELECT id, usuario_id, estado
+        FROM analisis
+        WHERE id = ?
+        """,
+        (analisis_id,)
+    ).fetchone()
+
+    if analisis is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No existe el análisis solicitado."
+        )
+
+    if analisis["estado"] == ESTADO_FINALIZADO:
+        raise HTTPException(
+            status_code=409,
+            detail="El análisis está finalizado (solo lectura)."
+        )
+
+    return analisis
+
 
 @router.post("/")
-
-
 def crear_analisis():
     """
     Endpoint provisional.
@@ -282,45 +353,8 @@ async def analizar_fotografias(
 
         for archivo in archivos:
 
-            if (
-                not archivo.content_type
-                or not archivo.content_type.startswith("image/")
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"{archivo.filename} "
-                        "no es una imagen válida."
-                    )
-                )
-
-            extension = Path(
-                archivo.filename or ""
-            ).suffix.lower()
-
-            if extension not in {
-                ".jpg", ".jpeg", ".png",
-                ".webp", ".bmp", ".tif", ".tiff"
-            }:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Formato de imagen no permitido."
-                )
-
-            nombre_unico = (
-                f"{uuid.uuid4().hex}{extension}"
-            )
-
-            ruta_destino = UPLOADS_DIR / nombre_unico
-
-            with open(ruta_destino, "wb") as destino:
-                shutil.copyfileobj(
-                    archivo.file,
-                    destino
-                )
-
             rutas_guardadas.append(
-                str(ruta_destino)
+                guardar_archivo(archivo)
             )
 
         # ==========================================
@@ -394,7 +428,13 @@ def obtener_historial():
                     SELECT COUNT(*)
                     FROM detecciones d
                     WHERE d.analisis_id = a.id
-                ) AS total_detecciones
+                ) AS total_detecciones,
+                (
+                    SELECT COUNT(*)
+                    FROM detecciones d
+                    WHERE d.analisis_id = a.id
+                      AND d.estado = 'Detectado'
+                ) AS total_detectados
             FROM analisis a
             JOIN usuarios u ON u.id = a.usuario_id
             ORDER BY a.id DESC
@@ -476,10 +516,6 @@ def obtener_analisis(analisis_id: int):
             (analisis_id,)
         ).fetchall()
 
-        # ==========================================
-        # CONSULTAR EVIDENCIAS POR FOTOGRAFÍA
-        # ==========================================
-
         evidencias = conexion.execute(
             """
             SELECT
@@ -500,18 +536,222 @@ def obtener_analisis(analisis_id: int):
 
     return {
         "analisis": dict(analisis),
-        "imagenes": [
-            dict(imagen)
-            for imagen in imagenes
-        ],
-        "detecciones": [
-            dict(deteccion)
-            for deteccion in detecciones
-        ],
-        "evidencias": [
-            dict(evidencia)
-            for evidencia in evidencias
-        ]
+        "imagenes": [dict(imagen) for imagen in imagenes],
+        "detecciones": [dict(deteccion) for deteccion in detecciones],
+        "evidencias": [dict(evidencia) for evidencia in evidencias]
+    }
+
+# ==========================================
+# 6.1 ELIMINAR UN ANÁLISIS
+# ==========================================
+
+@router.delete("/{analisis_id}", status_code=204)
+def eliminar_analisis(analisis_id: int):
+    """
+    Eliminar un análisis con sus fotografías,
+    detecciones y revisiones manuales.
+    """
+
+    with obtener_conexion() as conexion:
+
+        filas = conexion.execute(
+            """
+            SELECT ruta_archivo
+            FROM imagenes
+            WHERE analisis_id = ?
+            """,
+            (analisis_id,)
+        ).fetchall()
+
+        cursor = conexion.execute(
+            "DELETE FROM analisis WHERE id = ?",
+            (analisis_id,)
+        )
+
+        if cursor.rowcount == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="No existe el análisis solicitado."
+            )
+
+    # Borrar los archivos solo después de confirmar
+    # el borrado en la base de datos.
+    for fila in filas:
+        ruta = Path(fila["ruta_archivo"]).resolve()
+
+        if ruta.is_relative_to(UPLOADS_DIR.resolve()):
+            ruta.unlink(missing_ok=True)
+
+
+# ==========================================
+# 6.2 AGREGAR EVIDENCIA (CU-06)
+# ==========================================
+
+@router.post("/{analisis_id}/imagenes")
+async def agregar_evidencia(
+    analisis_id: int,
+    archivos: List[UploadFile] = File(...)
+):
+    """
+    Agregar fotografías a un análisis existente
+    y volver a evaluar las reglas.
+
+    Solo se ejecuta OCR sobre las fotos nuevas;
+    las anteriores reutilizan el texto guardado.
+    Las revisiones manuales se conservan.
+    """
+
+    rutas_nuevas = []
+
+    try:
+
+        with obtener_conexion() as conexion:
+
+            obtener_analisis_abierto(
+                conexion,
+                analisis_id
+            )
+
+            anteriores = conexion.execute(
+                """
+                SELECT id, ruta_archivo, texto_ocr, confianza_ocr
+                FROM imagenes
+                WHERE analisis_id = ?
+                ORDER BY id
+                """,
+                (analisis_id,)
+            ).fetchall()
+
+        for archivo in archivos:
+            rutas_nuevas.append(
+                guardar_archivo(archivo)
+            )
+
+        ocr_previo = {
+            fila["ruta_archivo"]: {
+                "texto": fila["texto_ocr"] or "",
+                "confianza": fila["confianza_ocr"] or 0.0,
+                "version": "guardado",
+                "psm": None,
+                "puntuacion": None,
+            }
+            for fila in anteriores
+        }
+
+        rutas = [
+            fila["ruta_archivo"]
+            for fila in anteriores
+        ] + rutas_nuevas
+
+        resultado = analizar_imagenes(
+            rutas,
+            ocr_previo=ocr_previo
+        )
+
+        with obtener_conexion() as conexion:
+
+            # Número de fotografía -> ID en SQLite.
+            ids_imagenes = {
+                indice + 1: fila["id"]
+                for indice, fila in enumerate(anteriores)
+            }
+
+            for indice, ruta in enumerate(
+                rutas_nuevas,
+                start=len(anteriores)
+            ):
+                imagen = resultado["imagenes"][indice]
+
+                cursor = conexion.execute(
+                    """
+                    INSERT INTO imagenes (
+                        analisis_id,
+                        nombre_archivo,
+                        ruta_archivo,
+                        texto_ocr,
+                        confianza_ocr
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        analisis_id,
+                        Path(ruta).name,
+                        ruta,
+                        imagen["texto"],
+                        imagen["confianza"]
+                    )
+                )
+
+                ids_imagenes[indice + 1] = cursor.lastrowid
+
+            # Reemplazar las detecciones anteriores
+            # por la nueva evaluación.
+            conexion.execute(
+                "DELETE FROM detecciones WHERE analisis_id = ?",
+                (analisis_id,)
+            )
+
+            guardar_detecciones(
+                conexion,
+                analisis_id,
+                resultado,
+                ids_imagenes
+            )
+
+        resultado["id_analisis"] = analisis_id
+        resultado["guardado"] = True
+
+        return resultado
+
+    except HTTPException:
+        for ruta in rutas_nuevas:
+            Path(ruta).unlink(missing_ok=True)
+        raise
+
+    except Exception as error:
+        for ruta in rutas_nuevas:
+            Path(ruta).unlink(missing_ok=True)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al agregar la evidencia: {error}"
+        )
+
+    finally:
+        for archivo in archivos:
+            await archivo.close()
+
+
+# ==========================================
+# 6.3 FINALIZAR ANÁLISIS
+# ==========================================
+
+@router.post("/{analisis_id}/finalizar")
+def finalizar_analisis(analisis_id: int):
+    """
+    Cerrar el análisis: queda en solo lectura
+    (sin fotos nuevas ni revisiones manuales).
+    """
+
+    with obtener_conexion() as conexion:
+
+        obtener_analisis_abierto(
+            conexion,
+            analisis_id
+        )
+
+        conexion.execute(
+            """
+            UPDATE analisis
+            SET estado = ?
+            WHERE id = ?
+            """,
+            (ESTADO_FINALIZADO, analisis_id)
+        )
+
+    return {
+        "id_analisis": analisis_id,
+        "estado": ESTADO_FINALIZADO
     }
 
 
@@ -555,21 +795,11 @@ def guardar_revision_manual(
 
     with obtener_conexion() as conexion:
 
-        # Comprobar que existe el análisis.
-        analisis = conexion.execute(
-            """
-            SELECT id, usuario_id
-            FROM analisis
-            WHERE id = ?
-            """,
-            (analisis_id,)
-        ).fetchone()
-
-        if analisis is None:
-            raise HTTPException(
-                status_code=404,
-                detail="No existe el análisis solicitado."
-            )
+        # Comprobar que existe y no está finalizado.
+        analisis = obtener_analisis_abierto(
+            conexion,
+            analisis_id
+        )
 
         # Comprobar que la regla fue evaluada
         # dentro del análisis seleccionado.

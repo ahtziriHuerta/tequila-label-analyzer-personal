@@ -3,7 +3,9 @@ from pathlib import Path
 import sqlite3
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+import pytesseract
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import analisis
@@ -24,6 +26,8 @@ DATABASE_PATH = BASE_DIR / "database" / "tequila.db"
 UPLOADS_DIR = (
     BASE_DIR / "backend" / "uploads"
 ).resolve()
+
+FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 # ==========================================
@@ -54,7 +58,40 @@ app.include_router(analisis.router)
 
 @app.get("/salud")
 def salud():
-    return {"estado": "ok"}
+    """
+    Estado del backend y del motor OCR.
+
+    La pantalla de Configuración lo usa para avisar
+    si Tesseract no está instalado.
+    """
+
+    try:
+        version_ocr = str(pytesseract.get_tesseract_version())
+        idiomas = pytesseract.get_languages()
+    except Exception:
+        version_ocr = None
+        idiomas = []
+
+    return {
+        "estado": "ok",
+        "ocr": "tesseract",
+        # El OCR usa lang="spa+eng" (services/ocr.py).
+        "ocr_disponible": {"spa", "eng"} <= set(idiomas),
+        "ocr_version": version_ocr,
+        "ocr_idiomas": idiomas,
+    }
+
+
+# ==========================================
+# FRONTEND (PWA)
+# ==========================================
+# El backend también sirve la interfaz en /app/.
+# Así basta un solo puerto (8000) para usarla desde
+# el celular o a través de un túnel HTTPS.
+
+@app.get("/", include_in_schema=False)
+def inicio():
+    return RedirectResponse("/app/")
 
 
 # ==========================================
@@ -103,3 +140,11 @@ def obtener_imagen(imagen_id: int):
         )
 
     return FileResponse(ruta)
+
+
+# Se monta al final para no tapar las rutas de la API.
+app.mount(
+    "/app",
+    StaticFiles(directory=FRONTEND_DIR, html=True),
+    name="frontend"
+)

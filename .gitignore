@@ -16,6 +16,8 @@ backend/uploads/
 *.jpeg
 *.png
 !frontend/assets/**
+# Íconos de la PWA, logo y portada sí se suben
+!frontend/img/**
 
 # OS / editor
 .DS_Store
