@@ -1,0 +1,17 @@
+{
+  "name": "Analizador de Etiquetado de Tequila",
+  "short_name": "Etiquetado",
+  "description": "Sistema de apoyo para el análisis del etiquetado de tequila conforme a la NOM-006-SCFI-2012.",
+  "lang": "es-MX",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f8",
+  "theme_color": "#0b4a6f",
+  "icons": [
+    { "src": "img/icono-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "img/icono-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "img/icono-mascarable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -9,3 +9,4 @@ pymysql
 sqlalchemy
 reportlab
 pytest
+httpx
