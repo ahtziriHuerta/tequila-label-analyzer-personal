@@ -119,6 +119,23 @@ def inicio():
     return RedirectResponse("/app/")
 
 
+@app.middleware("http")
+async def revalidar_frontend(request, call_next):
+    """
+    Pedir al navegador que confirme la versión de la interfaz
+    antes de usar su copia guardada. Sin esto, Safari (iPhone)
+    podía mezclar archivos viejos y nuevos tras un cambio.
+    Si no hubo cambios el servidor responde 304, que es ligero.
+    """
+
+    respuesta = await call_next(request)
+
+    if request.url.path.startswith("/app"):
+        respuesta.headers["Cache-Control"] = "no-cache"
+
+    return respuesta
+
+
 # ==========================================
 # CONSULTAR FOTOGRAFÍA GUARDADA
 # ==========================================

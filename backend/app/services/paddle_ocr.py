@@ -14,6 +14,9 @@ def obtener_motor():
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_textline_orientation=False,
+        # En Windows (CPU) oneDNN falla con los modelos PP-OCRv6:
+        # "ConvertPirAttribute2RuntimeAttribute not support".
+        enable_mkldnn=False,
     )
 
 
