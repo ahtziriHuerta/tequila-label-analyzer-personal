@@ -1,9 +1,11 @@
-
+import os
 from pathlib import Path
 import sqlite3
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+import pytesseract
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import analisis
@@ -19,11 +21,22 @@ app = FastAPI(
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-DATABASE_PATH = BASE_DIR / "database" / "tequila.db"
+DATABASE_PATH = Path(
+    os.environ.get(
+        "TEQUILA_DB_PATH",
+        str(BASE_DIR / "database" / "tequila.db")
+    )
+)
 
-UPLOADS_DIR = (
-    BASE_DIR / "backend" / "uploads"
+
+UPLOADS_DIR = Path(
+    os.environ.get(
+        "TEQUILA_UPLOADS_DIR",
+        str(BASE_DIR / "backend" / "uploads")
+    )
 ).resolve()
+
+FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 # ==========================================
@@ -54,7 +67,73 @@ app.include_router(analisis.router)
 
 @app.get("/salud")
 def salud():
-    return {"estado": "ok"}
+    """Estado del backend y disponibilidad de los motores OCR."""
+
+    # Verificar PaddleOCR sin cargar los modelos.
+    try:
+        import importlib.util
+        paddle_disponible = (
+            importlib.util.find_spec("paddleocr") is not None
+            and importlib.util.find_spec("paddle") is not None
+        )
+    except Exception:
+        paddle_disponible = False
+
+    # Verificar Tesseract como motor de respaldo.
+    try:
+        version_tesseract = str(pytesseract.get_tesseract_version())
+        idiomas = pytesseract.get_languages()
+        tesseract_disponible = {"spa", "eng"} <= set(idiomas)
+    except Exception:
+        version_tesseract = None
+        idiomas = []
+        tesseract_disponible = False
+
+    motor = (
+        "paddleocr" if paddle_disponible
+        else "tesseract" if tesseract_disponible
+        else None
+    )
+
+    return {
+        "estado": "ok",
+        "ocr": motor,
+        "ocr_disponible": motor is not None,
+        "ocr_version": "PaddleOCR" if motor == "paddleocr" else version_tesseract,
+        "ocr_idiomas": idiomas,
+        "paddleocr_disponible": paddle_disponible,
+        "tesseract_disponible": tesseract_disponible,
+        "tesseract_version": version_tesseract,
+    }
+
+
+# ==========================================
+# FRONTEND (PWA)
+# ==========================================
+# El backend también sirve la interfaz en /app/.
+# Así basta un solo puerto (8000) para usarla desde
+# el celular o a través de un túnel HTTPS.
+
+@app.get("/", include_in_schema=False)
+def inicio():
+    return RedirectResponse("/app/")
+
+
+@app.middleware("http")
+async def revalidar_frontend(request, call_next):
+    """
+    Pedir al navegador que confirme la versión de la interfaz
+    antes de usar su copia guardada. Sin esto, Safari (iPhone)
+    podía mezclar archivos viejos y nuevos tras un cambio.
+    Si no hubo cambios el servidor responde 304, que es ligero.
+    """
+
+    respuesta = await call_next(request)
+
+    if request.url.path.startswith("/app"):
+        respuesta.headers["Cache-Control"] = "no-cache"
+
+    return respuesta
 
 
 # ==========================================
@@ -103,3 +182,11 @@ def obtener_imagen(imagen_id: int):
         )
 
     return FileResponse(ruta)
+
+
+# Se monta al final para no tapar las rutas de la API.
+app.mount(
+    "/app",
+    StaticFiles(directory=FRONTEND_DIR, html=True),
+    name="frontend"
+)

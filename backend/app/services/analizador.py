@@ -1,7 +1,20 @@
+from __future__ import annotations
 
 """Servicio para analizar múltiples imágenes de una misma botella."""
 
-from app.services.ocr import extraer_texto
+from app.services.ocr import extraer_texto as extraer_texto_tesseract
+
+
+def extraer_texto(ruta):
+    """Usa PaddleOCR y recurre a Tesseract si falla."""
+    try:
+        from app.services.paddle_ocr import extraer_texto_paddle
+        return extraer_texto_paddle(ruta)
+    except Exception as error:
+        print(f"PaddleOCR falló: {error}")
+        print("Utilizando Tesseract como respaldo...")
+        return extraer_texto_tesseract(ruta)
+
 from app.services.reglas import (
     normalizar,
     detectar_denominacion,
@@ -12,7 +25,10 @@ from app.services.reglas import (
 )
 
 
-def analizar_imagenes(rutas_imagenes: list) -> dict:
+def analizar_imagenes(
+    rutas_imagenes: list,
+    ocr_previo: dict | None = None
+) -> dict:
     """
     Analiza múltiples fotografías de una misma botella.
 
@@ -25,7 +41,13 @@ def analizar_imagenes(rutas_imagenes: list) -> dict:
 
     Los resultados representan detecciones automáticas,
     no una certificación de cumplimiento normativo.
+
+    ocr_previo: resultados de OCR ya guardados ({ruta: resultado}).
+    Al agregar evidencia solo se lee la foto nueva; las demás
+    reutilizan su texto en lugar de volver a pasar por Tesseract.
     """
+
+    ocr_previo = ocr_previo or {}
 
     resultados_imagenes = []
     textos = []
@@ -37,7 +59,10 @@ def analizar_imagenes(rutas_imagenes: list) -> dict:
 
     for ruta in rutas_imagenes:
 
-        resultado = extraer_texto(ruta)
+        resultado = (
+            ocr_previo.get(ruta)
+            or extraer_texto(ruta)
+        )
 
         resultados_imagenes.append({
             "archivo": ruta,
@@ -54,54 +79,50 @@ def analizar_imagenes(rutas_imagenes: list) -> dict:
 
         confianzas.append(resultado["confianza"])
 
+
     # ==========================================
     # 2. EVIDENCIAS TEXTUALES POR FOTOGRAFÍA
     # ==========================================
 
-    evidencias = {}
-
-    terminos_por_regla = {
-        "ET-01": [
-            "TEQUILA",
-        ],
-        "ET-02": [
-            "100% DE AGAVE",
-            "100 % DE AGAVE",
-            "100% AGAVE",
-            "100 % AGAVE",
-        ],
-        "ET-03": [
-            "EXTRA ANEJO",
-            "REPOSADO",
-            "ANEJO",
-            "BLANCO",
-            "PLATA",
-            "JOVEN",
-            "ORO",
-        ],
+    evidencias = {
+        "ET-01": [],
+        "ET-02": [],
+        "ET-03": [],
     }
 
-    for codigo, terminos in terminos_por_regla.items():
+    funciones_textuales = {
+        "ET-01": detectar_denominacion,
+        "ET-02": detectar_categoria,
+        "ET-03": detectar_clase,
+    }
 
-        evidencias[codigo] = []
+    for indice, imagen in enumerate(resultados_imagenes):
+        texto_imagen = imagen["texto_normalizado"]
+        confianza = imagen["confianza"]
 
-        for indice, imagen in enumerate(resultados_imagenes):
+        for codigo, funcion in funciones_textuales.items():
+            deteccion = funcion(
+                texto_imagen,
+                confianza_ocr=confianza
+            )
 
-            texto_imagen = imagen["texto_normalizado"]
+            if codigo == "ET-01":
+                estado = deteccion
+                valor = "TEQUILA" if estado == "Detectado" else None
+            else:
+                estado = deteccion["estado"]
+                valor = deteccion["valor"]
 
-            encontrados = [
-                termino
-                for termino in terminos
-                if termino in texto_imagen
-            ]
-
-            if encontrados:
-
+            if estado == "Detectado" or (
+                estado == "Revisión manual" and valor is not None
+            ):
                 evidencias[codigo].append({
                     "numero_imagen": indice + 1,
                     "archivo": imagen["archivo"],
-                    "texto_detectado": encontrados,
+                    "valor_detectado": valor,
+                    "estado": estado,
                 })
+
 
     # ==========================================
     # 3. EVIDENCIAS DE VALORES NUMÉRICOS

@@ -1,303 +1,84 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  >
-
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Herramienta de apoyo para revisar el etiquetado de tequila conforme a la NOM-006-SCFI-2012.">
+  <meta name="theme-color" content="#0b4a6f">
   <title>Analizador de Etiquetado de Tequila</title>
-
+  <link rel="icon" href="img/icono.svg" type="image/svg+xml">
+  <!-- PWA: instalable en el celular (manifest + service worker registrado en js/app.js) -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Etiquetado">
   <link rel="stylesheet" href="css/styles.css">
 </head>
-
 <body>
+  <!-- Iconos (se usan con <svg><use href="#i-nombre"/></svg>) -->
+  <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+    <symbol id="i-agave" viewBox="0 0 24 24"><path d="M12 3c-1.5 3-4.5 4.5-4.5 9a4.5 4.5 0 0 0 9 0C16.5 7.5 13.5 6 12 3z"/><path d="M12 21v-4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-search-off" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M8 8l5 5M13 8l-5 5"/></symbol>
+    <symbol id="i-blur" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 0 0 16"/><path d="M15 6h.01M17.5 9h.01M18.5 12h.01M17.5 15h.01M15 18h.01" stroke-width="2.6"/></symbol>
+    <symbol id="i-image-add" viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M3 15l4-4 4 4 2-2 3 3"/><path d="M19 4v6M16 7h6"/></symbol>
+    <symbol id="i-user-check" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6"/><path d="M15.5 11.5l2 2 4-4"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-printer" viewBox="0 0 24 24"><path d="M7 9V4h10v5"/><rect x="4" y="9" width="16" height="7" rx="1.5"/><path d="M7 14h10v6H7z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 7V4h4v3M6 7l1 13h10l1-13"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.01"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></symbol>
+    <symbol id="i-bottle" viewBox="0 0 24 24"><path d="M10 2h4v4l2 3v12a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V9l2-3z"/><path d="M8 12h8v5H8z"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
+  </svg>
 
-  <!-- ENCABEZADO -->
+  <a class="skip-link" href="#vista">Saltar al contenido</a>
 
-  <header>
-    <div class="contenedor">
-
-      <h1>Analizador de Etiquetado de Tequila</h1>
-
-      <p>
-        Herramienta de apoyo para la revisión
-        de información en etiquetas de tequila.
-      </p>
-
-      <div id="estado-api">
-        ● Verificando backend...
-      </div>
-
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="#/" aria-label="Inicio">
+        <span class="brand__logo"><svg class="icon"><use href="#i-agave"/></svg></span>
+        <span class="brand__text">
+          <strong>Analizador de Etiquetado</strong>
+          <small>Tequila · NOM-006-SCFI-2012</small>
+        </span>
+      </a>
+      <nav class="topnav" aria-label="Principal">
+        <a href="#/" data-ruta="inicio"><svg class="icon"><use href="#i-home"/></svg><span>Inicio</span></a>
+        <a href="#/nuevo" data-ruta="nuevo"><svg class="icon"><use href="#i-plus"/></svg><span>Nuevo análisis</span></a>
+        <a href="#/historial" data-ruta="historial"><svg class="icon"><use href="#i-history"/></svg><span>Historial</span></a>
+        <a href="#/configuracion" data-ruta="config"><svg class="icon"><use href="#i-settings"/></svg><span>Configuración</span></a>
+      </nav>
+      <button type="button" id="instalar" class="api-pill api-pill--boton" hidden>
+        <svg class="icon"><use href="#i-download"/></svg><span>Instalar app</span>
+      </button>
+      <span id="estado-api" class="api-pill" data-estado="verificando" role="status">
+        <span class="api-pill__dot"></span><span class="api-pill__txt">Verificando API…</span>
+      </span>
     </div>
   </header>
 
-
-  <main class="contenedor">
-
-    <!-- CARGA DE FOTOGRAFÍAS -->
-
-    <section id="carga" class="tarjeta">
-
-      <div class="titulo-seccion">
-
-        <span class="numero">1</span>
-
-        <div>
-          <h2>Fotografías de la botella</h2>
-          <p>
-            Selecciona una o varias fotografías
-            para realizar el análisis.
-          </p>
-        </div>
-
-      </div>
-
-      <label
-        for="imagenes"
-        class="zona-carga"
-        id="zona-carga"
-      >
-
-        <span class="icono-camara">📷</span>
-
-        <strong>Seleccionar fotografías</strong>
-
-        <span>
-          Puedes elegir frontal, posterior,
-          lateral, cuello o lote.
-        </span>
-
-        <input
-          type="file"
-          id="imagenes"
-          accept="image/*"
-          multiple
-        >
-
-      </label>
-
-      <div
-        id="lista-imagenes"
-        class="lista-imagenes"
-      ></div>
-
-      <button
-        id="btn-analizar"
-        class="btn-principal"
-        type="button"
-        disabled
-      >
-        Analizar botella
-      </button>
-
-    </section>
-
-
-    <!-- PROCESANDO -->
-
-    <section
-      id="procesando"
-      class="tarjeta procesando oculto"
-    >
-
-      <div class="spinner"></div>
-
-      <h2>Analizando fotografías</h2>
-
-      <p>
-        Procesando imágenes, ejecutando OCR
-        y evaluando las reglas...
-      </p>
-
-    </section>
-
-
-    <!-- RESULTADOS -->
-
-    <section
-      id="resultados"
-      class="tarjeta oculto"
-    >
-
-      <div class="titulo-seccion">
-
-        <span class="numero">2</span>
-
-        <div>
-          <h2>Resultado del análisis</h2>
-
-          <p>
-            Información detectada en las fotografías.
-          </p>
-        </div>
-
-      </div>
-
-      <p id="identificador-analisis"></p>
-
-      <div
-        id="resumen-reglas"
-        class="reglas"
-      ></div>
-
-      <div id="galeria-evidencias" class="galeria-evidencias oculto">
-        <h3>Fotografías del análisis</h3>
-        <p>
-          Selecciona una fotografía para revisar
-          la evidencia utilizada en el análisis.
-        </p>
-
-        <div
-          id="lista-evidencias"
-          class="lista-evidencias"
-        ></div>
-      </div>
-
-
-<!-- REVISIÓN MANUAL -->
-
-<div id="revision-manual" class="revision-manual oculto">
-
-  <h3>Revisión manual del etiquetado</h3>
-
-  <p>
-    Registra una evaluación visual de los requisitos.
-    Las detecciones originales del OCR se conservarán.
-  </p>
-
-  <form id="form-revision">
-
-    <label for="revision-regla">
-      Requisito a revisar
-    </label>
-
-    <select id="revision-regla" required>
-      <option value="">Selecciona una regla</option>
-    </select>
-
-    <label for="revision-resultado">
-      Resultado de la revisión
-    </label>
-
-    <select id="revision-resultado" required>
-      <option value="">Selecciona un resultado</option>
-      <option value="Presente">Presente</option>
-      <option value="Ausente">Ausente</option>
-      <option value="No determinado">No determinado</option>
-    </select>
-
-    <label for="revision-observaciones">
-      Observaciones
-    </label>
-
-    <textarea
-      id="revision-observaciones"
-      rows="4"
-      maxlength="2000"
-      placeholder="Describe qué encontraste al revisar las fotografías..."
-    ></textarea>
-
-    <button
-      type="submit"
-      id="btn-guardar-revision"
-      class="btn-principal"
-    >
-      Guardar revisión
-    </button>
-
-    </form>
-
-    <p id="mensaje-revision" aria-live="polite"></p>
-
-    <h4>Historial de revisiones manuales</h4>
-
-    <div id="lista-revisiones"></div>
-
-  </div>
-
-
-      <div class="acciones">
-
-        <button
-          id="btn-nuevo"
-          class="btn-secundario"
-          type="button"
-        >
-          Nuevo análisis
-        </button>
-
-      </div>
-
-    </section>
-
-
-    <!-- HISTORIAL -->
-
-    <section
-      id="historial"
-      class="tarjeta"
-    >
-
-      <div class="titulo-seccion">
-
-        <span class="numero">3</span>
-
-        <div>
-          <h2>Historial de análisis</h2>
-
-          <p>
-            Consulta las revisiones guardadas
-            sin volver a procesar las fotografías.
-          </p>
-        </div>
-
-      </div>
-
-      <div class="acciones">
-
-        <button
-          id="btn-actualizar-historial"
-          class="btn-secundario"
-          type="button"
-        >
-          Actualizar historial
-        </button>
-
-      </div>
-
-      <div
-        id="lista-historial"
-        class="reglas"
-        aria-live="polite"
-      ></div>
-
-    </section>
-
-
-    <!-- ERRORES -->
-
-    <section
-      id="error"
-      class="mensaje-error oculto"
-      role="alert"
-    ></section>
-
-  </main>
-
-
-  <footer>
-    <p>
-      Herramienta de apoyo para revisión de etiquetado.
-      Los resultados no sustituyen una evaluación oficial.
-    </p>
+  <main id="vista" class="contenedor" tabindex="-1"></main>
+
+  <footer class="pie">
+    <div class="contenedor">
+      <p><strong>Herramienta de apoyo.</strong> Los resultados no sustituyen una certificación oficial ni un dictamen del organismo evaluador.</p>
+    </div>
   </footer>
 
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <script src="js/app.js"></script>
-
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -43,16 +43,14 @@ def detectar_denominacion(
     confianza_ocr: Optional[float] = None
 ) -> str:
     """
-    ET-01: detectar la denominación TEQUILA.
+    ET-01: Detectar la denominación TEQUILA
+    como palabra completa.
     """
 
-    if "TEQUILA" in texto_normalizado:
+    if re.search(r"\bTEQUILA\b", texto_normalizado):
         return "Detectado"
 
-    if (
-        confianza_ocr is not None
-        and confianza_ocr < 60
-    ):
+    if confianza_ocr is not None and confianza_ocr < 60:
         return "Baja legibilidad"
 
     return "No localizado"
@@ -63,34 +61,37 @@ def detectar_categoria(
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-02: detectar categoría.
+    ET-02: Identificar la categoría del tequila.
+    No inferir categoría por ausencia de información.
     """
 
-    patrones_100_agave = [
-        "100% DE AGAVE",
-        "100 % DE AGAVE",
-        "100% AGAVE",
-        "100 % AGAVE",
-    ]
+    texto = normalizar(texto_normalizado)
 
-    for patron in patrones_100_agave:
-        if patron in texto_normalizado:
-            return {
-                "estado": "Detectado",
-                "valor": "100% de agave"
-            }
+    patron_agave = (
+        r"\b100\s*%\s*"
+        r"(?:DE\s*)?AGAVE\b"
+    )
 
-    if (
-        confianza_ocr is not None
-        and confianza_ocr < 60
-    ):
+    if re.search(patron_agave, texto):
+        return {
+            "estado": "Detectado",
+            "valor": "100% de agave"
+        }
+
+    if confianza_ocr is not None and confianza_ocr < 60:
         return {
             "estado": "Baja legibilidad",
             "valor": None
         }
 
+    if re.search(r"\bTEQUILA\b", texto):
+        return {
+            "estado": "Revisión manual",
+            "valor": None
+        }
+
     return {
-        "estado": "Revisión manual",
+        "estado": "No localizado",
         "valor": None
     }
 
@@ -100,30 +101,44 @@ def detectar_clase(
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-03: detectar la clase del tequila.
+    ET-03: Detectar la clase del tequila.
+    Evita coincidencias parciales y detecta
+    clases diferentes en un mismo análisis.
     """
 
-    clases = [
-        ("EXTRA ANEJO", "Extra añejo"),
-        ("REPOSADO", "Reposado"),
-        ("ANEJO", "Añejo"),
-        ("BLANCO", "Blanco"),
-        ("PLATA", "Blanco"),
-        ("JOVEN", "Joven"),
-        ("ORO", "Joven"),
+    texto = normalizar(texto_normalizado)
+
+    patrones = [
+        (r"\bEXTRA\s+ANEJO\b", "Extra añejo"),
+        (r"\bREPOSADO\b", "Reposado"),
+        (r"\bANEJO\b", "Añejo"),
+        (r"\bBLANCO\b|\bPLATA\b", "Blanco"),
+        (r"\bJOVEN\b|\bORO\b", "Joven"),
     ]
 
-    for termino, valor in clases:
-        if termino in texto_normalizado:
-            return {
-                "estado": "Detectado",
-                "valor": valor
-            }
+    encontrados = []
 
-    if (
-        confianza_ocr is not None
-        and confianza_ocr < 60
-    ):
+    for patron, clase in patrones:
+        if re.search(patron, texto):
+            encontrados.append(clase)
+
+    # EXTRA AÑEJO no debe contarse también como AÑEJO.
+    if "Extra añejo" in encontrados and "Añejo" in encontrados:
+        encontrados.remove("Añejo")
+
+    if len(encontrados) == 1:
+        return {
+            "estado": "Detectado",
+            "valor": encontrados[0]
+        }
+
+    if len(encontrados) > 1:
+        return {
+            "estado": "Revisión manual",
+            "valor": ", ".join(encontrados)
+        }
+
+    if confianza_ocr is not None and confianza_ocr < 60:
         return {
             "estado": "Baja legibilidad",
             "valor": None
@@ -134,28 +149,33 @@ def detectar_clase(
         "valor": None
     }
 
+
 def detectar_contenido_neto(
     texto_normalizado: str,
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-05: localizar el contenido neto declarado.
+    ET-05: Detectar contenido neto.
 
     Ejemplos:
-    750 ML, 700 ML, 1 L, 1.5 L.
+    750 ML
+    700 ML
+    1 L
+    1.5 L
+
+    Evita coincidencias parciales como ML2026.
     """
+
+    texto = normalizar(texto_normalizado)
 
     patron = (
         r"(?<![A-Z0-9])"
         r"(\d{1,4}(?:[.,]\d{1,3})?)"
         r"\s*(ML|LITROS?|L)"
-        r"(?![A-Z])"
+        r"(?![A-Z0-9])"
     )
 
-    coincidencias = re.findall(
-        patron,
-        texto_normalizado
-    )
+    coincidencias = re.findall(patron, texto)
 
     valores = []
 
@@ -170,17 +190,15 @@ def detectar_contenido_neto(
         if 50 <= mililitros <= 5000:
             valores.append(mililitros)
 
-    if valores:
-        valores_unicos = sorted(set(valores))
+    valores_unicos = sorted(set(valores))
 
-        if len(valores_unicos) == 1:
-            cantidad = valores_unicos[0]
+    if len(valores_unicos) == 1:
+        return {
+            "estado": "Detectado",
+            "valor": f"{valores_unicos[0]:g} mL"
+        }
 
-            return {
-                "estado": "Detectado",
-                "valor": f"{cantidad:g} mL"
-            }
-
+    if len(valores_unicos) > 1:
         return {
             "estado": "Revisión manual",
             "valor": ", ".join(
@@ -200,34 +218,48 @@ def detectar_contenido_neto(
         "valor": None
     }
 
+
+
 def detectar_graduacion_alcoholica(
     texto_normalizado: str,
     confianza_ocr: Optional[float] = None
 ) -> dict:
     """
-    ET-07: detectar el porcentaje de alcohol declarado.
+    ET-07: Detecta graduación alcohólica.
+
+    Formatos aceptados:
+    - 40% Alc. Vol.
+    - 38 % ALC/VOL
+    - 35% VOL
+    - 40% DE ALCOHOL
+
+    Evita coincidencias parciales como:
+    - 40% ALC/VOL2026
     """
 
+    texto = normalizar(texto_normalizado)
+
     patron = (
-        r"(?<![\d])"
+        r"(?<![A-Z0-9])"
         r"(\d{1,2}(?:[.,]\d{1,2})?)"
         r"\s*%\s*"
-        r"(?:ALC\.?\s*[/.-]?\s*VOL\.?|VOL\.?)"
-        r"(?![A-Z])"
+        r"(?:"
+        r"ALC\.?\s*[/.-]?\s*VOL\.?"
+        r"|VOL\.?"
+        r"|DE\s+ALCOHOL"
+        r")"
+        r"(?![A-Z0-9])"
     )
 
-    coincidencias = re.findall(
-        patron,
-        texto_normalizado
-    )
+    coincidencias = re.findall(patron, texto)
 
     valores = []
 
     for cantidad in coincidencias:
-        porcentaje = float(cantidad.replace(",", "."))
+        numero = float(cantidad.replace(",", "."))
 
-        if 0 < porcentaje <= 100:
-            valores.append(porcentaje)
+        if 0 < numero <= 100:
+            valores.append(numero)
 
     valores_unicos = sorted(set(valores))
 
@@ -241,10 +273,65 @@ def detectar_graduacion_alcoholica(
         return {
             "estado": "Revisión manual",
             "valor": ", ".join(
-                f"{valor:g}%"
+                f"{valor:g}% Alc. Vol."
                 for valor in valores_unicos
             )
         }
+        # Posible confusión OCR entre VOL y VAL.
+    # Recuperamos el porcentaje, pero exigimos revisión manual.
+    patron_val = (
+        r"(?<![A-Z0-9])"
+        r"(\d{1,2}(?:[.,]\d{1,2})?)"
+        r"\s*%\s*"
+        r"ALC\.?\s*[/.-]?\s*VAL\.?"
+        r"(?![A-Z0-9])"
+    )
+
+    coincidencias_val = re.findall(patron_val, texto)
+
+    if coincidencias_val:
+        valores_val = sorted({
+            float(valor.replace(",", "."))
+            for valor in coincidencias_val
+            if 0 < float(valor.replace(",", ".")) <= 100
+        })
+
+        if valores_val:
+            return {
+                "estado": "Revisión manual",
+                "valor": ", ".join(
+                    f"{valor:g}% Alc. Val. (verificar en fotografía)"
+                    for valor in valores_val
+                )
+            }
+
+        # Posible omisión de la letra L por parte del OCR:
+    # "38% Ac Vol." en lugar de "38% Alc. Vol."
+    patron_ac_vol = (
+        r"(?<![A-Z0-9])"
+        r"(\d{1,2}(?:[.,]\d{1,2})?)"
+        r"\s*%\s*"
+        r"AC\.?\s*[/.-]?\s*VOL\.?"
+        r"(?![A-Z0-9])"
+    )
+
+    coincidencias_ac_vol = re.findall(patron_ac_vol, texto)
+
+    if coincidencias_ac_vol:
+        valores_ac_vol = sorted({
+            float(valor.replace(",", "."))
+            for valor in coincidencias_ac_vol
+            if 0 < float(valor.replace(",", ".")) <= 100
+        })
+
+        if valores_ac_vol:
+            return {
+                "estado": "Revisión manual",
+                "valor": ", ".join(
+                    f"{valor:g}% Ac. Vol. (verificar en fotografía)"
+                    for valor in valores_ac_vol
+                )
+            }
 
     if confianza_ocr is not None and confianza_ocr < 60:
         return {

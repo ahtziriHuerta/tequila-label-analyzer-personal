@@ -1,10 +1,24 @@
 """RF-06: extracción adaptativa de texto mediante Tesseract OCR."""
 
+import os
 import re
+from pathlib import Path
+
 import pytesseract
 from pytesseract import Output
 
 from app.services.preprocesamiento import preprocesar
+
+
+# En Windows el instalador no agrega Tesseract al PATH.
+# Se puede indicar la ruta con TESSERACT_CMD; si no,
+# se busca en la carpeta de instalación habitual.
+_RUTA_WINDOWS = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+
+if os.getenv("TESSERACT_CMD"):
+    pytesseract.pytesseract.tesseract_cmd = os.environ["TESSERACT_CMD"]
+elif os.name == "nt" and _RUTA_WINDOWS.is_file():
+    pytesseract.pytesseract.tesseract_cmd = str(_RUTA_WINDOWS)
 
 
 # Términos frecuentes y útiles en etiquetado de tequila.
