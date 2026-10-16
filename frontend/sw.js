@@ -2,12 +2,12 @@
 // Estrategia "red primero": con conexión siempre se ve la última versión (útil mientras desarrollamos)
 // y la caché solo se usa como respaldo. Las llamadas a la API nunca se guardan.
 // Si agregas un archivo a la interfaz, súmalo a NUCLEO y cambia la versión de CACHE.
-const CACHE = "tla-v4";
+const CACHE = "tla-v10";
 const NUCLEO = [
   "./", "index.html", "manifest.json", "css/styles.css",
   "js/app.js", "js/api.js", "js/catalogos.js", "js/ejemplo.js", "js/ui.js",
-  "js/vistas/inicio.js", "js/vistas/nuevo.js", "js/vistas/resultado.js", "js/vistas/configuracion.js",
-  "img/icono.svg", "img/portada.webp", "img/logo-crt.png", "fonts/montserrat-latin.woff2",
+  "js/vistas/inicio.js", "js/vistas/historial.js", "js/vistas/nuevo.js", "js/vistas/resultado.js", "js/vistas/configuracion.js",
+  "img/icono.svg", "img/portada.webp", "img/fondo-agave.webp", "img/logo-crt.png", "fonts/montserrat-latin.woff2",
   "img/icono-192.png", "img/icono-512.png",
 ];
 
@@ -27,7 +27,9 @@ self.addEventListener("fetch", e => {
   if (e.request.method !== "GET" || !e.request.url.startsWith(self.registration.scope)) return;
 
   e.respondWith(
-    fetch(e.request)
+    // cache: "no-cache" pide al servidor la versión vigente (sin esto el navegador podía
+    // entregar un .js viejo de su caché junto con un .css nuevo).
+    fetch(e.request, { cache: "no-cache" })
       .then(res => {
         if (res.ok) {
           const copia = res.clone();

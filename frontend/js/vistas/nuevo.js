@@ -78,8 +78,7 @@ export function vistaNuevo(raiz) {
   function pasoFotos() {
     const faltan = VISTAS.filter(v => v.recomendada && !estado.fotos.has(v.id));
     return `
-      <section class="tarjeta tarjeta--botella">
-        <img class="tarjeta__botella" src="img/portada.webp" alt="" width="900" height="1200" loading="lazy">
+      <section class="tarjeta tarjeta--fotos">
         <header class="tarjeta__cabecera">
           <div>
             <h2>Fotografías de la botella</h2>

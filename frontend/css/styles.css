@@ -331,24 +331,6 @@ main.contenedor { flex: 1; padding-top: 24px; padding-bottom: 48px; outline: non
 @media screen and (prefers-color-scheme: dark) { .pasos-hero li > span { color: #08202f; } }
 .pasos-hero div { display: grid; }
 .pasos-hero small { color: var(--texto-suave); }
-/* Ilustración y herramientas de la portada */
-.hero__arte { width: 100%; max-width: 320px; height: auto; justify-self: center; }
-.herramientas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
-.herramienta {
-  display: grid; gap: 4px; padding: 16px; border-radius: var(--radio); text-decoration: none; color: var(--texto);
-  background: var(--superficie); border: 1px solid var(--borde); box-shadow: var(--sombra);
-  transition: transform .15s, border-color .15s;
-}
-.herramienta:hover { transform: translateY(-2px); border-color: var(--azul); }
-.herramienta small { color: var(--texto-suave); }
-.herramienta__icono {
-  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; margin-bottom: 6px;
-  background: var(--azul-50); color: var(--azul);
-}
-@media (max-width: 820px) {
-  .herramientas { grid-template-columns: 1fr; }
-  .hero__arte { max-width: 220px; order: -1; }
-}
 @media (max-width: 820px) {
   .hero { grid-template-columns: 1fr; padding: 22px; }
   .hero .acciones .btn { flex: 1; }
@@ -541,11 +523,13 @@ label.btn:has(input:focus-visible) { outline: 3px solid var(--foco); outline-off
 .vista > .tarjeta + .tarjeta { margin-top: 16px; }
 
 /* Portada: foto de la botella difuminada hacia el texto */
-.hero--portada { position: relative; overflow: hidden; min-height: 440px; grid-template-columns: 1fr; padding: 36px; }
+.hero--portada { position: relative; overflow: hidden; min-height: 440px; grid-template-columns: 1fr; align-content: center; gap: 14px; padding: 36px; }
 .hero--portada .hero__texto { position: relative; z-index: 1; max-width: 52%; }
 .hero--portada h1 { font-size: clamp(1.9rem, 4.4vw, 2.9rem); font-weight: 500; line-height: 1.12; color: var(--azul); }
 .hero--portada h1 strong { font-weight: 800; display: block; }
-.hero__logo { width: 112px; height: auto; margin-bottom: 4px; padding: 8px 10px; border-radius: 10px; background: #fff; box-shadow: var(--sombra); }
+.hero__logo { position: relative; z-index: 1; width: 112px; height: auto; padding: 8px 10px; border-radius: 10px; background: #fff; box-shadow: var(--sombra); }
+.hero__ejemplo { display: inline-flex; align-items: center; gap: 6px; width: fit-content; font-size: .9rem; font-weight: 600; text-decoration: none; }
+.hero__ejemplo:hover { text-decoration: underline; }
 .hero__foto {
   position: absolute; inset: 0 0 0 auto; width: 62%; height: 100%; object-fit: cover; object-position: 70% 55%;
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 42%);
@@ -553,26 +537,18 @@ label.btn:has(input:focus-visible) { outline: 3px solid var(--foco); outline-off
 }
 .eyebrow, .btn { font-family: var(--fuente-titulos); }
 @media (max-width: 820px) {
-  .hero--portada { padding: 0 20px 24px; min-height: 0; }
-  .hero--portada .hero__texto { max-width: none; padding-top: 0; }
+  .hero--portada { padding: 0 20px 24px; min-height: 0; gap: 0; }
+  .hero--portada .hero__texto { max-width: none; padding-top: 0; margin-top: -58px; } /* la leyenda sube al difuminado */
+  /* Logo del CRT dentro de la foto, arriba a la izquierda */
+  .hero__logo { position: absolute; top: 14px; left: 14px; width: 86px; padding: 6px 8px; }
   .hero__foto {
-    position: relative; inset: auto; display: block; width: calc(100% + 40px); height: 230px; margin: 0 -20px 12px;
+    position: relative; inset: auto; display: block; width: calc(100% + 40px); max-width: none; height: 290px; margin: 0 -20px;
     object-position: 60% 62%;
     -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
             mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
   }
 }
 
-/* Nuevo análisis, paso 1: la misma botella, difuminada en la esquina */
-.tarjeta--botella { position: relative; overflow: hidden; }
-.tarjeta--botella > :not(.tarjeta__botella) { position: relative; z-index: 1; }
-.tarjeta__botella {
-  position: absolute; top: 0; right: 0; width: 210px; height: 128px; object-fit: cover; object-position: 80% 68%; pointer-events: none;
-  -webkit-mask-image: radial-gradient(ellipse at 75% 40%, #000 30%, transparent 72%);
-          mask-image: radial-gradient(ellipse at 75% 40%, #000 30%, transparent 72%);
-}
-@media (max-width: 560px) { .tarjeta__botella { width: 130px; height: 100px; } }
-.tarjeta--botella .tarjeta__cabecera { min-height: 92px; padding-right: 150px; }
 
 /* Aviso de calidad de la foto (preprocesamiento.medir_calidad) */
 .imagenes__aviso { display: flex; align-items: center; gap: 4px; color: var(--baja); font-weight: 600; }
@@ -604,3 +580,27 @@ label.btn:has(input:focus-visible) { outline: 3px solid var(--foco); outline-off
 .revisiones p { font-size: .9rem; }
 .revisiones small { font-size: .78rem; }
 .lista-simple .icon { color: var(--azul); position: relative; top: 2px; }
+
+/* Campo de agave (img/fondo-agave.webp) como fondo.
+   La foto es pequeña (400×600): siempre lleva un velo encima para que se lea el contenido
+   y no se note la baja resolución. */
+.zona-agave {
+  display: grid; align-content: start; gap: 16px; min-height: 420px; padding: 16px;
+  border-radius: calc(var(--radio) + 4px); border: 1px solid var(--borde); box-shadow: var(--sombra);
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--fondo) 35%, transparent), transparent 40%, rgb(0 0 0 / .18)),
+    url(../img/fondo-agave.webp) center 40% / cover;
+}
+.zona-agave .tarjeta,
+.zona-agave .aviso {
+  background: color-mix(in srgb, var(--superficie) 86%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+/* Nuevo análisis, «Fotografías de la botella»: solo color (sin foto) para no saturar.
+   Azul claro de la marca hacia blanco, con un toque del verde agave. */
+.tarjeta--fotos {
+  background: linear-gradient(160deg, var(--azul-50) 0%, var(--superficie) 55%,
+                              color-mix(in srgb, var(--verde-claro) 16%, var(--superficie)) 100%);
+}
+.tarjeta--fotos .foto--vacia { background: var(--superficie); }
+.tarjeta--fotos .foto--vacia:hover, .tarjeta--fotos .foto--vacia.is-arrastre { background: var(--azul-50); }

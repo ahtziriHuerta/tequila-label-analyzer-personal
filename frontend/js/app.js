@@ -3,11 +3,13 @@ import { vistaInicio } from "./vistas/inicio.js";
 import { vistaNuevo } from "./vistas/nuevo.js";
 import { vistaResultado } from "./vistas/resultado.js";
 import { vistaConfiguracion } from "./vistas/configuracion.js";
+import { vistaHistorial } from "./vistas/historial.js";
 
-// Navegación por hash: #/, #/nuevo, #/configuracion, #/analisis/12 (o #/analisis/EJEMPLO).
+// Navegación por hash: #/, #/nuevo, #/historial, #/configuracion, #/analisis/12 (o #/analisis/EJEMPLO).
 const RUTAS = [
   { patron: /^#?\/?$/,                 nav: "inicio", render: vistaInicio },
   { patron: /^#\/nuevo$/,              nav: "nuevo",  render: vistaNuevo },
+  { patron: /^#\/historial$/,          nav: "historial", render: vistaHistorial },
   { patron: /^#\/configuracion$/,      nav: "config", render: vistaConfiguracion },
   { patron: /^#\/analisis\/(\w+)$/,    nav: null,     render: vistaResultado },
 ];
