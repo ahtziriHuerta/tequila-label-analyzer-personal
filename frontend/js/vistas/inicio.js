@@ -40,7 +40,7 @@ export function vistaInicio(raiz) {
         <img class="hero__logo" src="img/logo-crt.png" alt="Consejo Regulador del Tequila" width="520" height="368">
         <div class="hero__texto">
           <p class="eyebrow">Sistema de apoyo · NOM-006-SCFI-2012</p>
-          <h1>Análisis de <strong>etiquetado</strong> de tequila</h1>
+          <h1>Análisis de <em>etiquetado</em> <small>de tequila</small></h1>
           <p class="hero__lead">Fotografía la botella y revisa qué requisitos del etiquetado se detectan.</p>
           <div class="acciones">
             <a class="btn btn--primario btn--grande" href="#/nuevo">${icono("i-plus")}Nuevo análisis</a>

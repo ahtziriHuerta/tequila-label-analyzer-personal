@@ -2,12 +2,13 @@
 // Estrategia "red primero": con conexión siempre se ve la última versión (útil mientras desarrollamos)
 // y la caché solo se usa como respaldo. Las llamadas a la API nunca se guardan.
 // Si agregas un archivo a la interfaz, súmalo a NUCLEO y cambia la versión de CACHE.
-const CACHE = "tla-v10";
+const CACHE = "tla-v11";
 const NUCLEO = [
   "./", "index.html", "manifest.json", "css/styles.css",
   "js/app.js", "js/api.js", "js/catalogos.js", "js/ejemplo.js", "js/ui.js",
   "js/vistas/inicio.js", "js/vistas/historial.js", "js/vistas/nuevo.js", "js/vistas/resultado.js", "js/vistas/configuracion.js",
-  "img/icono.svg", "img/portada.webp", "img/fondo-agave.webp", "img/logo-crt.png", "fonts/montserrat-latin.woff2",
+  "img/icono.svg", "img/portada.webp", "img/fondo-agave.webp", "img/logo-crt.png", "fonts/cormorant-garamond-latin.woff2", "fonts/cormorant-garamond-italic-latin.woff2",
+  "fonts/source-sans-3-latin.woff2", "fonts/ibm-plex-mono-500-latin.woff2", "fonts/ibm-plex-mono-600-latin.woff2",
   "img/icono-192.png", "img/icono-512.png",
 ];
 
