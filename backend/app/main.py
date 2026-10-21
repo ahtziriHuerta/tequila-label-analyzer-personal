@@ -1,6 +1,8 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 import sqlite3
+import threading
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
@@ -11,8 +13,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import analisis
 
 
+def _precargar_paddle():
+    """Arranca el proceso de OCR y carga el modelo al iniciar el servidor,
+    para que el primer análisis desde la app no espere ~10 s de carga."""
+    try:
+        from app.services.paddle_ocr import precargar
+        precargar()
+    except Exception:
+        pass  # sin Paddle se usa Tesseract
+
+
+@asynccontextmanager
+async def ciclo_de_vida(_app):
+    threading.Thread(target=_precargar_paddle, daemon=True).start()
+    yield
+
+
 app = FastAPI(
-    title="Analizador de etiquetado de Tequila"
+    title="Analizador de etiquetado de Tequila",
+    lifespan=ciclo_de_vida,
 )
 
 # ==========================================
@@ -65,6 +84,22 @@ app.include_router(analisis.router)
 # SALUD DEL BACKEND
 # ==========================================
 
+# Consultar Tesseract lanza dos procesos; mientras Paddle ocupa la CPU eso
+# tardaba más de 20 s y la app daba el backend por apagado. Se guarda la
+# primera consulta exitosa (no cambia mientras el servidor está encendido).
+_tesseract_cache = None
+
+
+def _estado_tesseract():
+    global _tesseract_cache
+    if _tesseract_cache is None:
+        _tesseract_cache = (
+            str(pytesseract.get_tesseract_version()),
+            pytesseract.get_languages(),
+        )
+    return _tesseract_cache
+
+
 @app.get("/salud")
 def salud():
     """Estado del backend y disponibilidad de los motores OCR."""
@@ -81,8 +116,7 @@ def salud():
 
     # Verificar Tesseract como motor de respaldo.
     try:
-        version_tesseract = str(pytesseract.get_tesseract_version())
-        idiomas = pytesseract.get_languages()
+        version_tesseract, idiomas = _estado_tesseract()
         tesseract_disponible = {"spa", "eng"} <= set(idiomas)
     except Exception:
         version_tesseract = None

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Literal
 from app.services.analizador import analizar_imagenes
@@ -371,7 +372,10 @@ async def analizar_fotografias(
         # 2. EJECUTAR ANALIZADOR
         # ==========================================
 
-        resultado = analizar_imagenes(
+        # El OCR es lento y síncrono: en un hilo aparte para no bloquear
+        # el servidor (si no, /salud deja de responder y la app lo da por apagado).
+        resultado = await run_in_threadpool(
+            analizar_imagenes,
             rutas_guardadas
         )
 
@@ -653,7 +657,8 @@ async def agregar_evidencia(
             for fila in anteriores
         ] + rutas_nuevas
 
-        resultado = analizar_imagenes(
+        resultado = await run_in_threadpool(
+            analizar_imagenes,
             rutas,
             ocr_previo=ocr_previo
         )
