@@ -11,13 +11,50 @@ PRAGMA foreign_keys = ON;
 -- 1. USUARIOS
 -- ==========================================
 
+-- Las cuentas las crea un administrador (backend/app/usuarios_cli.py).
+-- contrasena_hash NULL = la cuenta no puede iniciar sesión
+-- (p. ej. "Usuario de prueba", dueño de los análisis anteriores al login).
+-- Las bases existentes se actualizan al arrancar (app/basedatos.py).
+
 CREATE TABLE IF NOT EXISTS usuarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL,
     correo TEXT NOT NULL UNIQUE,
     fecha_registro TEXT NOT NULL
-        DEFAULT CURRENT_TIMESTAMP
+        DEFAULT CURRENT_TIMESTAMP,
+    contrasena_hash TEXT,
+    rol TEXT NOT NULL DEFAULT 'analista'
+        CHECK (rol IN ('analista', 'administrador')),
+    activo INTEGER NOT NULL DEFAULT 1,
+    debe_cambiar_contrasena INTEGER NOT NULL DEFAULT 0,
+    intentos_fallidos INTEGER NOT NULL DEFAULT 0,
+    bloqueado_hasta TEXT,
+    ultimo_acceso TEXT
 );
+
+
+-- ==========================================
+-- 1.1 SESIONES
+-- ==========================================
+-- Solo se guarda el hash del token; el token viaja
+-- en una cookie HttpOnly.
+
+CREATE TABLE IF NOT EXISTS sesiones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash TEXT NOT NULL UNIQUE,
+    usuario_id INTEGER NOT NULL,
+    creada TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expira TEXT NOT NULL,
+    ultimo_uso TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    agente TEXT,
+
+    FOREIGN KEY (usuario_id)
+        REFERENCES usuarios(id)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sesiones_usuario
+ON sesiones(usuario_id);
 
 
 -- ==========================================
@@ -30,6 +67,9 @@ CREATE TABLE IF NOT EXISTS analisis (
     estado TEXT NOT NULL DEFAULT 'Pendiente',
     fecha_creacion TEXT NOT NULL
         DEFAULT CURRENT_TIMESTAMP,
+    -- 1 = análisis de prueba: visible para todo el equipo
+    -- y fuera de las métricas personales.
+    es_prueba INTEGER NOT NULL DEFAULT 0,
 
     FOREIGN KEY (usuario_id)
         REFERENCES usuarios(id)
@@ -48,6 +88,8 @@ CREATE TABLE IF NOT EXISTS imagenes (
     ruta_archivo TEXT NOT NULL,
     texto_ocr TEXT,
     confianza_ocr REAL,
+    -- 'paddleocr' o 'tesseract'; permite comparar motores en las pruebas.
+    motor_ocr TEXT,
     fecha_carga TEXT NOT NULL
         DEFAULT CURRENT_TIMESTAMP,
 

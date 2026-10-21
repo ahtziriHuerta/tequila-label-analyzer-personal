@@ -23,6 +23,8 @@ El sistema facilita la identificación de datos, la revisión de requisitos, la 
 - 📄 **Reportes:** permite consultar e imprimir los resultados en PDF.
 - 📱 **PWA:** interfaz adaptable a computadoras y dispositivos móviles.
 - 🔒 **Finalización:** permite cerrar un análisis para conservarlo en modo de solo lectura.
+- 👤 **Cuentas de usuario:** inicio de sesión; cada analista ve sus propios análisis y solo un administrador puede eliminarlos.
+- 🧪 **Bloque de pruebas:** análisis de prueba visibles para todo el equipo, para comparar cómo evoluciona la lectura.
 
 ## 🛠️ Tecnologías utilizadas
 
@@ -38,6 +40,7 @@ El sistema facilita la identificación de datos, la revisión de requisitos, la 
 | OCR alternativo | Tesseract OCR |
 | Procesamiento de imágenes | OpenCV |
 | Base de datos | SQLite |
+| Contraseñas | Argon2id (argon2-cffi) |
 | Pruebas automatizadas | Pytest |
 | Control de versiones | Git y GitHub |
 
@@ -129,9 +132,13 @@ tequila-label-analyzer-personal/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
+│   │   ├── basedatos.py        # conexión y actualización del esquema
+│   │   ├── usuarios_cli.py     # crear cuentas desde la terminal
 │   │   ├── routers/
-│   │   │   └── analisis.py
+│   │   │   ├── analisis.py
+│   │   │   └── auth.py         # iniciar/cerrar sesión, contraseña
 │   │   └── services/
+│   │       ├── seguridad.py    # contraseñas, sesiones, permisos
 │   │       ├── paddle_ocr.py
 │   │       ├── ocr.py
 │   │       ├── preprocesamiento.py
@@ -149,7 +156,8 @@ tequila-label-analyzer-personal/
 │   ├── js/
 │   │   ├── app.js
 │   │   ├── api.js
-│   │   └── vistas/
+│   │   ├── sesion.js           # menú de usuario, sesión vencida
+│   │   └── vistas/             # acceso.js = iniciar sesión y contraseña
 │   └── img/
 │
 ├── database/
@@ -242,6 +250,25 @@ python database/db.py
 
 No ejecutar este paso sobre una base existente sin verificar primero su contenido y contar con un respaldo.
 
+Al arrancar, el servidor crea las tablas que falten y actualiza las bases creadas antes del inicio de sesión (columnas nuevas y tabla `sesiones`). En esa actualización, los análisis que ya existían pasan al **bloque de pruebas**. Haz un respaldo de la base antes de arrancar por primera vez con esta versión.
+
+### 6. Crear la primera cuenta de administrador
+
+No hay registro público: las cuentas las crea un administrador. Desde `backend/`, con la misma `TEQUILA_DB_PATH` que usará el servidor:
+
+```bash
+python -m app.usuarios_cli crear --nombre "Nombre Apellido" --correo persona@ejemplo.mx --rol administrador
+```
+
+El comando muestra **una sola vez** una contraseña temporal. Entrégala por un medio privado; la app pide cambiarla en el primer acceso. Otros comandos:
+
+| Comando | Para qué |
+|---|---|
+| `crear --nombre … --correo … [--rol analista\|administrador]` | Cuenta nueva con contraseña temporal |
+| `restablecer --correo …` | Contraseña temporal nueva (olvido); cierra sus sesiones |
+| `desactivar --correo …` / `activar --correo …` | Quitar o devolver el acceso; desactivar cierra sus sesiones |
+| `listar` | Ver las cuentas, su rol y su último acceso |
+
 ## ▶️ Ejecutar el proyecto
 
 Desde la carpeta principal, con el entorno virtual activado:
@@ -266,7 +293,7 @@ Una vez iniciado, acceder a:
 | Documentación interactiva | http://127.0.0.1:8000/docs |
 | Estado del servidor | http://127.0.0.1:8000/salud |
 
-El backend sirve tanto la API como la interfaz web.
+El backend sirve tanto la API como la interfaz web. La aplicación pide iniciar sesión; `/salud` y los archivos de la interfaz son públicos, todo lo demás requiere sesión.
 
 ## 🧪 Entorno de pruebas aislado
 
@@ -307,7 +334,7 @@ python -m pytest backend/tests -q
 Resultado verificado en el entorno de desarrollo:
 
 ```text
-31 passed
+49 passed
 ```
 
 Este resultado corresponde al conjunto de pruebas existente y no implica que todos los requisitos normativos estén implementados.
@@ -338,11 +365,15 @@ Abrir la URL HTTPS proporcionada y añadir `/app/`.
 
 | Método | Endpoint | Descripción |
 |---|---|---|
-| GET | `/salud` | Estado del backend y OCR |
-| POST | `/analisis/imagenes` | Crear análisis con fotografías |
-| GET | `/analisis/historial` | Consultar historial |
+| GET | `/salud` | Estado del backend y OCR (público) |
+| POST | `/auth/entrar` | Iniciar sesión (correo y contraseña); abre la sesión en una cookie |
+| POST | `/auth/salir` | Cerrar sesión |
+| GET | `/auth/yo` | Usuario de la sesión actual |
+| POST | `/auth/cambiar-contrasena` | Cambiar la contraseña; cierra las otras sesiones |
+| POST | `/analisis/imagenes` | Crear análisis con fotografías (`es_prueba` opcional) |
+| GET | `/analisis/historial` | Historial: `?ambito=mios` (predeterminado), `pruebas` o `todos` (administrador, con `usuario_id` opcional) |
 | GET | `/analisis/{id}` | Consultar análisis |
-| DELETE | `/analisis/{id}` | Eliminar análisis |
+| DELETE | `/analisis/{id}` | Eliminar análisis (solo administrador) |
 | POST | `/analisis/{id}/imagenes` | Agregar evidencias |
 | POST | `/analisis/{id}/finalizar` | Finalizar análisis |
 | GET | `/analisis/{id}/revisiones` | Consultar revisiones |
@@ -351,6 +382,18 @@ Abrir la URL HTTPS proporcionada y añadir `/app/`.
 
 La documentación interactiva completa está disponible en `/docs`.
 
+### Cuentas y permisos
+
+| Acción | Analista | Administrador |
+|---|---|---|
+| Crear análisis, agregar fotos, revisar y finalizar | Los suyos y las pruebas | Todos |
+| Ver análisis de otras personas | No | Sí |
+| Ver y revisar el bloque de pruebas | Sí | Sí |
+| Eliminar análisis | No | Sí |
+| Crear cuentas y restablecer contraseñas | No | Sí (`usuarios_cli`) |
+
+Un análisis que el usuario no puede ver responde `404`, igual que si no existiera. Las revisiones manuales quedan a nombre de quien las hace. Mientras dure el desarrollo, *Nuevo análisis* permite marcar el análisis como prueba; se desactiva con `TEQUILA_PRUEBAS_ACTIVAS=0`.
+
 ## 🔐 Consideraciones de seguridad
 
 - No publicar credenciales, claves API ni archivos `.env`.
@@ -358,6 +401,9 @@ La documentación interactiva completa está disponible en `/docs`.
 - Mantener los respaldos de SQLite fuera del control de versiones.
 - Utilizar entornos virtuales locales.
 - Evitar exponer el servidor de desarrollo directamente a internet sin controles de acceso.
+- Sesión en el servidor con cookie `HttpOnly` y `SameSite=Lax` (y `Secure` en https); duración de 14 días que se renueva con el uso. La sesión no se guarda en `localStorage`.
+- Contraseñas cifradas con Argon2id. Tras 5 intentos fallidos la cuenta espera 15 minutos; también hay un límite por dirección IP.
+- Las peticiones que modifican datos se rechazan si vienen de otro sitio, y las respuestas privadas llevan `Cache-Control: no-store`.
 - No utilizar el sistema como sustituto de una evaluación normativa oficial.
 
 ## 🔮 Mejoras futuras
@@ -367,7 +413,8 @@ La documentación interactiva completa está disponible en `/docs`.
 - Incorporar información estructurada de las vistas de cada botella.
 - Ampliar las pruebas automatizadas.
 - Mejorar la generación y exportación de reportes.
-- Incorporar autenticación y gestión de usuarios.
+- Pantalla de administración de usuarios (hoy se usa `usuarios_cli`).
+- "Volver a analizar" las pruebas con el código actual para comparar el antes y el después.
 - Optimizar la instalación y ejecución en diferentes plataformas.
 - Almacenar rutas relativas de fotografías para facilitar la portabilidad.
 

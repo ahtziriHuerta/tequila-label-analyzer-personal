@@ -1,16 +1,18 @@
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-import sqlite3
 import threading
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import pytesseract
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import analisis
+from app import basedatos
+from app.routers import analisis, auth
+from app.services.seguridad import usuario_actual
 
 
 def _precargar_paddle():
@@ -25,6 +27,8 @@ def _precargar_paddle():
 
 @asynccontextmanager
 async def ciclo_de_vida(_app):
+    # Crea las tablas que falten y actualiza bases anteriores al login.
+    basedatos.asegurar_esquema()
     threading.Thread(target=_precargar_paddle, daemon=True).start()
     yield
 
@@ -40,14 +44,6 @@ app = FastAPI(
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-DATABASE_PATH = Path(
-    os.environ.get(
-        "TEQUILA_DB_PATH",
-        str(BASE_DIR / "database" / "tequila.db")
-    )
-)
-
-
 UPLOADS_DIR = Path(
     os.environ.get(
         "TEQUILA_UPLOADS_DIR",
@@ -62,21 +58,64 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 # CORS
 # ==========================================
 
+# Live Server (:5500) para desarrollo del frontend; envía la cookie de sesión.
+ORIGENES_DESARROLLO = [
+    "http://127.0.0.1:5500",
+    "http://localhost:5500"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500"
-    ],
+    allow_origins=ORIGENES_DESARROLLO,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 # ==========================================
+# PROTECCIÓN DE PETICIONES
+# ==========================================
+
+METODOS_QUE_MODIFICAN = {"POST", "PUT", "PATCH", "DELETE"}
+RUTAS_PRIVADAS = ("/analisis", "/auth", "/imagenes")
+
+
+@app.middleware("http")
+async def proteger_peticiones(request, call_next):
+    """
+    - Rechaza peticiones que modifican datos si vienen de otro sitio
+      (complementa la cookie SameSite=Lax contra CSRF).
+    - Pide no guardar en caché las respuestas privadas: datos y fotos
+      de una cuenta no deben quedar en el navegador tras cerrar sesión.
+    """
+
+    origen = request.headers.get("origin")
+
+    if (
+        request.method in METODOS_QUE_MODIFICAN
+        and origen
+        and urlsplit(origen).netloc != request.headers.get("host")
+        and origen not in ORIGENES_DESARROLLO
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Petición rechazada: origen no permitido."}
+        )
+
+    respuesta = await call_next(request)
+
+    if request.url.path.startswith(RUTAS_PRIVADAS):
+        respuesta.headers["Cache-Control"] = "no-store"
+
+    return respuesta
+
+
+# ==========================================
 # ROUTERS
 # ==========================================
 
+app.include_router(auth.router)
 app.include_router(analisis.router)
 
 
@@ -175,32 +214,37 @@ async def revalidar_frontend(request, call_next):
 # ==========================================
 
 @app.get("/imagenes/{imagen_id}")
-def obtener_imagen(imagen_id: int):
+def obtener_imagen(
+    imagen_id: int,
+    usuario: dict = Depends(usuario_actual)
+):
     """
     Consulta una fotografía registrada en SQLite.
 
-    Se valida que el archivo corresponda a una
-    imagen registrada y esté dentro de uploads.
+    Solo si el usuario puede ver el análisis al que
+    pertenece. Se valida que el archivo corresponda a
+    una imagen registrada y esté dentro de uploads.
     """
 
-    with sqlite3.connect(DATABASE_PATH) as conexion:
+    with basedatos.obtener_conexion() as conexion:
 
         fila = conexion.execute(
             """
-            SELECT ruta_archivo
-            FROM imagenes
-            WHERE id = ?
+            SELECT i.ruta_archivo, a.usuario_id, a.es_prueba
+            FROM imagenes i
+            JOIN analisis a ON a.id = i.analisis_id
+            WHERE i.id = ?
             """,
             (imagen_id,)
         ).fetchone()
 
-    if fila is None:
+    if fila is None or not analisis.puede_ver(usuario, fila):
         raise HTTPException(
             status_code=404,
             detail="La imagen no está registrada."
         )
 
-    ruta = Path(fila[0]).resolve()
+    ruta = Path(fila["ruta_archivo"]).resolve()
 
     # Impedir acceder a archivos fuera de uploads.
     if not ruta.is_relative_to(UPLOADS_DIR):

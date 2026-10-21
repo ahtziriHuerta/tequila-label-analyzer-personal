@@ -3,33 +3,28 @@
 
 import os
 import shutil
-import sqlite3
 import uuid
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Literal
+from app.basedatos import obtener_conexion
 from app.services.analizador import analizar_imagenes
+from app.services.seguridad import es_admin, pruebas_activas, requiere_admin, usuario_actual
 
 
+# Todas las rutas exigen sesión con contraseña definitiva.
 router = APIRouter(
     prefix="/analisis",
-    tags=["analisis"]
+    tags=["analisis"],
+    dependencies=[Depends(usuario_actual)]
 )
 
 # Directorio principal del proyecto.
 BASE_DIR = Path(__file__).resolve().parents[3]
-
-# Base de datos SQLite.
-DATABASE_PATH = Path(
-    os.environ.get(
-        "TEQUILA_DB_PATH",
-        str(BASE_DIR / "database" / "tequila.db")
-    )
-)
 
 # Directorio donde se conservarán las fotografías.
 UPLOADS_DIR = Path(
@@ -45,44 +40,54 @@ UPLOADS_DIR.mkdir(
 )
 
 
-def obtener_conexion():
-    """Crear una conexión a SQLite."""
-
-    conexion = sqlite3.connect(DATABASE_PATH)
-    conexion.row_factory = sqlite3.Row
-    conexion.execute("PRAGMA foreign_keys = ON")
-
-    return conexion
-
-
-def obtener_usuario_sistema(conexion):
+def puede_ver(usuario, analisis) -> bool:
     """
-    Crear o recuperar un usuario provisional.
-
-    Posteriormente implementaremos registro
-    e inicio de sesión.
+    Cada analista ve solo sus análisis; el bloque de pruebas
+    es de todo el equipo y el administrador ve todo.
     """
 
-    correo = "sistema@tequila.local"
-
-    conexion.execute(
-        """
-        INSERT OR IGNORE INTO usuarios (nombre, correo)
-        VALUES (?, ?)
-        """,
-        ("Usuario de prueba", correo)
+    return (
+        es_admin(usuario)
+        or analisis["usuario_id"] == usuario["id"]
+        or bool(analisis["es_prueba"])
     )
 
-    usuario = conexion.execute(
+
+def obtener_analisis_visible(conexion, analisis_id, usuario):
+    """
+    Recuperar un análisis que el usuario puede ver.
+
+    Si no puede verlo se responde 404, igual que si no
+    existiera, para no revelar los análisis de otros.
+    """
+
+    analisis = conexion.execute(
         """
-        SELECT id
-        FROM usuarios
-        WHERE correo = ?
+        SELECT id, usuario_id, estado, es_prueba
+        FROM analisis
+        WHERE id = ?
         """,
-        (correo,)
+        (analisis_id,)
     ).fetchone()
 
-    return usuario["id"]
+    if analisis is None or not puede_ver(usuario, analisis):
+        raise HTTPException(
+            status_code=404,
+            detail="No existe el análisis solicitado."
+        )
+
+    return analisis
+
+
+def motor_ocr(imagen) -> str | None:
+    """Motor que leyó la foto, para comparar en el bloque de pruebas."""
+
+    version = imagen.get("version")
+    if version == "paddleocr":
+        return "paddleocr"
+    if version in (None, "guardado"):
+        return None
+    return "tesseract"
 
 
 def registrar_reglas(conexion, reglas):
@@ -109,17 +114,15 @@ def registrar_reglas(conexion, reglas):
         )
 
 
-def guardar_resultado(conexion, resultado, rutas):
+def guardar_resultado(conexion, resultado, rutas, usuario_id, es_prueba=False):
     """Guardar análisis, imágenes y detecciones."""
-
-    usuario_id = obtener_usuario_sistema(conexion)
 
     cursor = conexion.execute(
         """
-        INSERT INTO analisis (usuario_id, estado)
-        VALUES (?, ?)
+        INSERT INTO analisis (usuario_id, estado, es_prueba)
+        VALUES (?, ?, ?)
         """,
-        (usuario_id, "Revisión pendiente")
+        (usuario_id, "Revisión pendiente", int(es_prueba))
     )
 
     analisis_id = cursor.lastrowid
@@ -138,16 +141,18 @@ def guardar_resultado(conexion, resultado, rutas):
                 nombre_archivo,
                 ruta_archivo,
                 texto_ocr,
-                confianza_ocr
+                confianza_ocr,
+                motor_ocr
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 analisis_id,
                 ruta.name,
                 str(ruta),
                 imagen["texto"],
-                imagen["confianza"]
+                imagen["confianza"],
+                motor_ocr(imagen)
             )
         )
 
@@ -289,28 +294,19 @@ def guardar_archivo(archivo: UploadFile) -> str:
     return str(ruta_destino)
 
 
-def obtener_analisis_abierto(conexion, analisis_id):
+def obtener_analisis_abierto(conexion, analisis_id, usuario):
     """
-    Recuperar un análisis que todavía admite cambios.
+    Recuperar un análisis visible que todavía admite cambios.
 
     Un análisis finalizado queda en solo lectura:
     no acepta fotografías ni revisiones nuevas.
     """
 
-    analisis = conexion.execute(
-        """
-        SELECT id, usuario_id, estado
-        FROM analisis
-        WHERE id = ?
-        """,
-        (analisis_id,)
-    ).fetchone()
-
-    if analisis is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No existe el análisis solicitado."
-        )
+    analisis = obtener_analisis_visible(
+        conexion,
+        analisis_id,
+        usuario
+    )
 
     if analisis["estado"] == ESTADO_FINALIZADO:
         raise HTTPException(
@@ -340,12 +336,17 @@ def crear_analisis():
 
 @router.post("/imagenes")
 async def analizar_fotografias(
-    archivos: List[UploadFile] = File(...)
+    archivos: List[UploadFile] = File(...),
+    es_prueba: bool = Form(False),
+    usuario: dict = Depends(usuario_actual)
 ):
     """
     Recibe fotografías, ejecuta OCR y reglas,
     conserva las imágenes y registra el análisis
-    en SQLite.
+    en SQLite a nombre del usuario de la sesión.
+
+    es_prueba: guardarlo en el bloque de pruebas
+    (solo mientras las pruebas estén activas).
     """
 
     if not archivos:
@@ -388,7 +389,9 @@ async def analizar_fotografias(
             analisis_id = guardar_resultado(
                 conexion,
                 resultado,
-                rutas_guardadas
+                rutas_guardadas,
+                usuario["id"],
+                es_prueba=es_prueba and pruebas_activas()
             )
 
         # ==========================================
@@ -421,18 +424,52 @@ async def analizar_fotografias(
 # ==========================================
 
 @router.get("/historial")
-def obtener_historial():
-    """Consultar todos los análisis guardados."""
+def obtener_historial(
+    ambito: Literal["mios", "pruebas", "todos"] = "mios",
+    usuario_id: int | None = Query(default=None),
+    usuario: dict = Depends(usuario_actual)
+):
+    """
+    Consultar los análisis guardados.
+
+    - mios: los del usuario, sin las pruebas.
+    - pruebas: el bloque de pruebas del equipo.
+    - todos: todos los análisis (solo administrador),
+      opcionalmente de un usuario (usuario_id).
+    """
+
+    if ambito == "todos" and not es_admin(usuario):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo un administrador puede ver los análisis de todos."
+        )
+
+    condiciones = {
+        "mios": ("a.usuario_id = ? AND a.es_prueba = 0", [usuario["id"]]),
+        "pruebas": ("a.es_prueba = 1", []),
+        "todos": ("1 = 1", []),
+    }
+    filtro, parametros = condiciones[ambito]
+
+    if ambito == "todos" and usuario_id is not None:
+        filtro += " AND a.usuario_id = ?"
+        parametros.append(usuario_id)
 
     with obtener_conexion() as conexion:
         filas = conexion.execute(
-            """
+            f"""
             SELECT
                 a.id,
                 a.usuario_id,
                 u.nombre AS usuario,
                 a.estado,
+                a.es_prueba,
                 a.fecha_creacion,
+                (
+                    SELECT GROUP_CONCAT(DISTINCT i.motor_ocr)
+                    FROM imagenes i
+                    WHERE i.analisis_id = a.id
+                ) AS motores_ocr,
                 (
                     SELECT COUNT(*)
                     FROM imagenes i
@@ -451,13 +488,33 @@ def obtener_historial():
                 ) AS total_detectados
             FROM analisis a
             JOIN usuarios u ON u.id = a.usuario_id
+            WHERE {filtro}
             ORDER BY a.id DESC
-            """
+            """,
+            parametros
         ).fetchall()
+
+        # Para el filtro por usuario del administrador.
+        usuarios = (
+            [
+                dict(fila)
+                for fila in conexion.execute(
+                    """
+                    SELECT DISTINCT u.id, u.nombre
+                    FROM usuarios u
+                    JOIN analisis a ON a.usuario_id = u.id
+                    ORDER BY u.nombre
+                    """
+                )
+            ]
+            if ambito == "todos"
+            else []
+        )
 
     return {
         "total": len(filas),
-        "analisis": [dict(fila) for fila in filas]
+        "analisis": [dict(fila) for fila in filas],
+        "usuarios": usuarios
     }
 
 
@@ -466,10 +523,15 @@ def obtener_historial():
 # ==========================================
 
 @router.get("/{analisis_id}")
-def obtener_analisis(analisis_id: int):
+def obtener_analisis(
+    analisis_id: int,
+    usuario: dict = Depends(usuario_actual)
+):
     """Consultar los detalles de un análisis guardado."""
 
     with obtener_conexion() as conexion:
+
+        obtener_analisis_visible(conexion, analisis_id, usuario)
 
         analisis = conexion.execute(
             """
@@ -478,6 +540,7 @@ def obtener_analisis(analisis_id: int):
                 a.usuario_id,
                 u.nombre AS usuario,
                 a.estado,
+                a.es_prueba,
                 a.fecha_creacion
             FROM analisis a
             JOIN usuarios u ON u.id = a.usuario_id
@@ -485,12 +548,6 @@ def obtener_analisis(analisis_id: int):
             """,
             (analisis_id,)
         ).fetchone()
-
-        if analisis is None:
-            raise HTTPException(
-                status_code=404,
-                detail="No se encontró el análisis solicitado."
-            )
 
         imagenes = conexion.execute(
             """
@@ -500,6 +557,7 @@ def obtener_analisis(analisis_id: int):
                 ruta_archivo,
                 texto_ocr,
                 confianza_ocr,
+                motor_ocr,
                 fecha_carga
             FROM imagenes
             WHERE analisis_id = ?
@@ -559,11 +617,17 @@ def obtener_analisis(analisis_id: int):
 # 6.1 ELIMINAR UN ANÁLISIS
 # ==========================================
 
-@router.delete("/{analisis_id}", status_code=204)
+@router.delete(
+    "/{analisis_id}",
+    status_code=204,
+    dependencies=[Depends(requiere_admin)]
+)
 def eliminar_analisis(analisis_id: int):
     """
     Eliminar un análisis con sus fotografías,
     detecciones y revisiones manuales.
+
+    Solo un administrador puede hacerlo.
     """
 
     with obtener_conexion() as conexion:
@@ -604,7 +668,8 @@ def eliminar_analisis(analisis_id: int):
 @router.post("/{analisis_id}/imagenes")
 async def agregar_evidencia(
     analisis_id: int,
-    archivos: List[UploadFile] = File(...)
+    archivos: List[UploadFile] = File(...),
+    usuario: dict = Depends(usuario_actual)
 ):
     """
     Agregar fotografías a un análisis existente
@@ -623,7 +688,8 @@ async def agregar_evidencia(
 
             obtener_analisis_abierto(
                 conexion,
-                analisis_id
+                analisis_id,
+                usuario
             )
 
             anteriores = conexion.execute(
@@ -684,16 +750,18 @@ async def agregar_evidencia(
                         nombre_archivo,
                         ruta_archivo,
                         texto_ocr,
-                        confianza_ocr
+                        confianza_ocr,
+                        motor_ocr
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         analisis_id,
                         Path(ruta).name,
                         ruta,
                         imagen["texto"],
-                        imagen["confianza"]
+                        imagen["confianza"],
+                        motor_ocr(imagen)
                     )
                 )
 
@@ -742,7 +810,10 @@ async def agregar_evidencia(
 # ==========================================
 
 @router.post("/{analisis_id}/finalizar")
-def finalizar_analisis(analisis_id: int):
+def finalizar_analisis(
+    analisis_id: int,
+    usuario: dict = Depends(usuario_actual)
+):
     """
     Cerrar el análisis: queda en solo lectura
     (sin fotos nuevas ni revisiones manuales).
@@ -752,7 +823,8 @@ def finalizar_analisis(analisis_id: int):
 
         obtener_analisis_abierto(
             conexion,
-            analisis_id
+            analisis_id,
+            usuario
         )
 
         conexion.execute(
@@ -796,7 +868,8 @@ class RevisionManualEntrada(BaseModel):
 @router.post("/{analisis_id}/revisiones", status_code=201)
 def guardar_revision_manual(
     analisis_id: int,
-    revision: RevisionManualEntrada
+    revision: RevisionManualEntrada,
+    usuario: dict = Depends(usuario_actual)
 ):
     """
     Registrar una revisión humana de una regla.
@@ -810,10 +883,11 @@ def guardar_revision_manual(
 
     with obtener_conexion() as conexion:
 
-        # Comprobar que existe y no está finalizado.
-        analisis = obtener_analisis_abierto(
+        # Comprobar que existe, es visible y no está finalizado.
+        obtener_analisis_abierto(
             conexion,
-            analisis_id
+            analisis_id,
+            usuario
         )
 
         # Comprobar que la regla fue evaluada
@@ -837,10 +911,9 @@ def guardar_revision_manual(
                 )
             )
 
-        # Por ahora usamos el usuario asociado
-        # al análisis. La autenticación real
-        # se implementará posteriormente.
-        usuario_id = analisis["usuario_id"]
+        # La revisión queda a nombre de quien la hizo,
+        # no del autor del análisis.
+        usuario_id = usuario["id"]
 
         cursor = conexion.execute(
             """
@@ -898,7 +971,8 @@ def guardar_revision_manual(
 
 @router.get("/{analisis_id}/revisiones")
 def consultar_revisiones_manuales(
-    analisis_id: int
+    analisis_id: int,
+    usuario: dict = Depends(usuario_actual)
 ):
     """
     Consultar el historial de revisiones
@@ -907,20 +981,7 @@ def consultar_revisiones_manuales(
 
     with obtener_conexion() as conexion:
 
-        analisis = conexion.execute(
-            """
-            SELECT id
-            FROM analisis
-            WHERE id = ?
-            """,
-            (analisis_id,)
-        ).fetchone()
-
-        if analisis is None:
-            raise HTTPException(
-                status_code=404,
-                detail="No existe el análisis solicitado."
-            )
+        obtener_analisis_visible(conexion, analisis_id, usuario)
 
         filas = conexion.execute(
             """

@@ -29,11 +29,14 @@ dev-marcos  ─┘
 
 ## Antes de abrir un PR
 - `cd backend && pytest` pasa.
-- La app abre en http://127.0.0.1:8000/app/ y se puede hacer un análisis completo.
-- No se cambió `database/tequila.db` sin avisar (tiene datos de prueba del equipo).
+- La app abre en http://127.0.0.1:8000/app/, se puede iniciar sesión y hacer un análisis completo
+  (crea tu cuenta con `python -m app.usuarios_cli crear …`, ver README).
+- No se cambió `database/tequila.db` sin avisar (tiene datos de prueba del equipo). Ojo: al arrancar,
+  el servidor actualiza el esquema de la base que use; para probar, usa una copia con `TEQUILA_DB_PATH`.
 
 ## Reglas
-- Nunca subir `.env` ni credenciales.
+- Nunca subir `.env` ni credenciales (tampoco contraseñas temporales de `usuarios_cli`).
+- Toda ruta nueva de datos debe exigir sesión (`usuario_actual`) y revisar quién puede ver el análisis.
 - Si cambias la API, actualiza la tabla de endpoints del README y `frontend/js/api.js`.
 - Si agregas una regla ET, súmala también a `REGLAS` en `frontend/js/catalogos.js`.
 - Si agregas un archivo al frontend, súmalo a `NUCLEO` en `frontend/sw.js` y sube la versión de `CACHE`.

@@ -1,19 +1,56 @@
 import { REGLAS, TOTAL_REGLAS_ET, IMAGEN } from "../catalogos.js";
-import { API_URL, conexion, salud } from "../api.js";
+import { API_URL, conexion, salud, sesion } from "../api.js";
 import { esc, icono, tamano, toast } from "../ui.js";
+import { nombreRol, establecerSesion, navegacion } from "../sesion.js";
+import { formularioCambio, activarCambio } from "./acceso.js";
 
-// Pantalla informativa: cómo está configurada la instalación, prueba de conexión
-// y cómo instalar la app en el celular.
+// Pantalla informativa: la cuenta del usuario, cómo está configurada la instalación,
+// prueba de conexión y cómo instalar la app en el celular.
 export function vistaConfiguracion(raiz) {
+  const u = sesion.usuario;
+
+  // La cuenta se pinta una sola vez: refrescar el estado del servidor no borra lo que
+  // el usuario esté escribiendo en el formulario de contraseña.
+  raiz.innerHTML = `
+    <div class="encabezado-vista">
+      <a href="#/" class="volver">${icono("i-arrow-left")}Inicio</a>
+      <h1>Configuración</h1>
+      <p class="texto-suave">Tu cuenta, el estado del servidor y los requisitos evaluados.</p>
+    </div>
+
+    <section class="tarjeta" id="cuenta" tabindex="-1" aria-labelledby="cuenta-titulo">
+      <header class="tarjeta__cabecera"><h2 id="cuenta-titulo">Tu cuenta</h2></header>
+      <dl class="datos">
+        <div><dt>Nombre</dt><dd>${esc(u.nombre)}</dd></div>
+        <div><dt>Correo</dt><dd>${esc(u.correo)}</dd></div>
+        <div><dt>Rol</dt><dd>${nombreRol(u.rol)}</dd></div>
+      </dl>
+      <h3 class="subtitulo">Cambiar contraseña</h3>
+      <p class="texto-suave texto-chico">Al cambiarla se cierran tus sesiones en otros equipos.</p>
+      ${formularioCambio({ correo: u.correo, obligatorio: false })}
+    </section>
+
+    <div data-estado></div>`;
+
+  activarCambio(raiz, {
+    alGuardar: datos => {
+      establecerSesion(datos);
+      toast("Contraseña cambiada. Se cerraron tus otras sesiones.", "ok");
+    },
+  });
+
+  if (navegacion.irACuenta) {
+    navegacion.irACuenta = false;
+    const cuenta = raiz.querySelector("#cuenta");
+    cuenta.scrollIntoView({ block: "start" });
+    cuenta.focus({ preventScroll: true });
+  }
+
+  const zonaEstado = raiz.querySelector("[data-estado]");
+
   function pintar() {
     const ok = conexion.disponible;
-    raiz.innerHTML = `
-      <div class="encabezado-vista">
-        <a href="#/" class="volver">${icono("i-arrow-left")}Inicio</a>
-        <h1>Configuración</h1>
-        <p class="texto-suave">Estado del servidor, del motor OCR y de los requisitos evaluados.</p>
-      </div>
-
+    zonaEstado.innerHTML = `
       <section class="tarjeta">
         <header class="tarjeta__cabecera"><h2>Servidor</h2></header>
         <dl class="datos">

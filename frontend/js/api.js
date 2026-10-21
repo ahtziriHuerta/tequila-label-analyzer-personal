@@ -9,27 +9,82 @@ export const API_URL = location.port === "5500"
 // Estado de conexión con el backend; app.js lo actualiza periódicamente con /salud.
 export const conexion = { disponible: false, ocr: null, ocrDisponible: false, ocrVersion: null };
 
+// Usuario de la sesión; lo llena sesion.js con /auth/yo o al iniciar sesión.
+export const sesion = { usuario: null, pruebasActivas: false };
+export const esAdmin = () => sesion.usuario?.rol === "administrador";
+
 // El OCR prueba varias versiones de cada foto: con varias imágenes puede tardar bastante.
 const TIEMPO_OCR = 5 * 60 * 1000;
 
+// sesion.js registra aquí cómo pedir la contraseña cuando la sesión vence (401).
+let reautenticar = null;
+export function alVencerSesion(fn) { reautenticar = fn; }
+
+// `reintentar: false` = no abrir la ventana de sesión vencida ante un 401 (rutas de /auth).
 async function pedir(ruta, opciones = {}, timeoutMs = 10000) {
+  const { reintentar = true, ...fetchOpciones } = opciones;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  let r;
   try {
-    const r = await fetch(`${API_URL}${ruta}`, { ...opciones, signal: ctrl.signal });
-    if (!r.ok) {
-      // FastAPI devuelve {"detail": "..."}; se muestra tal cual al usuario.
-      const detalle = await r.json().then(d => d.detail, () => null);
-      throw Object.assign(new Error(typeof detalle === "string" ? detalle : `Error ${r.status} en ${ruta}`),
-                          { status: r.status });
-    }
-    return r.status === 204 ? null : await r.json();
+    // credentials: "include" envía la cookie de sesión también desde Live Server (:5500).
+    r = await fetch(`${API_URL}${ruta}`, { credentials: "include", ...fetchOpciones, signal: ctrl.signal });
   } catch (err) {
     if (err.name === "AbortError") throw new Error("El servidor tardó demasiado en responder.");
-    throw err;
+    throw Object.assign(new Error("No se pudo conectar con el servidor."), { sinConexion: true });
   } finally {
     clearTimeout(t);
   }
+
+  // Sesión vencida: se pide la contraseña encima de la pantalla actual y se repite
+  // la petición, sin perder lo que el usuario estaba haciendo (p. ej. sus fotos).
+  if (r.status === 401 && reintentar && reautenticar) {
+    await reautenticar();
+    return pedir(ruta, { ...opciones, reintentar: false }, timeoutMs);
+  }
+
+  if (!r.ok) {
+    // FastAPI devuelve {"detail": "..."}; se muestra tal cual al usuario.
+    const detalle = await r.json().then(d => d.detail, () => null);
+    throw Object.assign(new Error(typeof detalle === "string" ? detalle : `Error ${r.status} en ${ruta}`),
+                        { status: r.status });
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+// ---------- Sesión ----------
+
+export function entrar(correo, contrasena) {
+  return pedir("/auth/entrar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ correo, contrasena }),
+    reintentar: false,
+  });
+}
+
+export function salir() {
+  return pedir("/auth/salir", { method: "POST", reintentar: false });
+}
+
+// Devuelve { usuario, pruebas_activas } o null si no hay sesión.
+// Sin conexión lanza un error con `sinConexion`.
+export async function yo() {
+  try {
+    return await pedir("/auth/yo", { reintentar: false });
+  } catch (err) {
+    if (err.status === 401) return null;
+    throw err;
+  }
+}
+
+export function cambiarContrasena(actual, nueva) {
+  return pedir("/auth/cambiar-contrasena", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ actual, nueva }),
+    reintentar: false,
+  });
 }
 
 export async function salud() {
@@ -49,8 +104,11 @@ function formulario(archivos) {
 }
 
 // Crea el análisis: sube las fotos, ejecuta OCR + reglas y lo guarda en SQLite.
-export function analizar(archivos) {
-  return pedir("/analisis/imagenes", { method: "POST", body: formulario(archivos) }, TIEMPO_OCR);
+// esPrueba: lo guarda en el bloque de pruebas del equipo.
+export function analizar(archivos, { esPrueba = false } = {}) {
+  const form = formulario(archivos);
+  if (esPrueba) form.append("es_prueba", "true");
+  return pedir("/analisis/imagenes", { method: "POST", body: form }, TIEMPO_OCR);
 }
 
 // CU-06: agrega fotos a un análisis existente; solo se leen las nuevas y se reevalúan las reglas.
@@ -58,8 +116,17 @@ export function agregarEvidencia(idAnalisis, archivos) {
   return pedir(`/analisis/${idAnalisis}/imagenes`, { method: "POST", body: formulario(archivos) }, TIEMPO_OCR);
 }
 
+// Análisis propios (sin las pruebas).
 export function listarAnalisis() {
-  return pedir("/analisis/historial").then(d => d.analisis ?? []);
+  return consultarHistorial().then(d => d.analisis);
+}
+
+// ambito: "mios" | "pruebas" | "todos" (solo administrador, con filtro opcional por usuario).
+export function consultarHistorial({ ambito = "mios", usuarioId = null } = {}) {
+  const params = new URLSearchParams({ ambito });
+  if (usuarioId) params.set("usuario_id", usuarioId);
+  return pedir(`/analisis/historial?${params}`)
+    .then(d => ({ analisis: d.analisis ?? [], usuarios: d.usuarios ?? [] }));
 }
 
 export function obtenerAnalisis(idAnalisis) {
@@ -98,6 +165,8 @@ export function desdeServidor({ analisis, imagenes, detecciones, evidencias = []
   return {
     id: analisis.id,
     estado: analisis.estado,
+    autor: analisis.usuario,
+    esPrueba: !!analisis.es_prueba,
     finalizado: analisis.estado === "Finalizado",
     fecha: fechaServidor(analisis.fecha_creacion),
     imagenes: imagenes.map((img, i) => ({

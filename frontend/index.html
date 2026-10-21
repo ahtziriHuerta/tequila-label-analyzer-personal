@@ -14,7 +14,7 @@
   <meta name="apple-mobile-web-app-title" content="Etiquetado">
   <link rel="stylesheet" href="css/styles.css">
 </head>
-<body>
+<body data-sesion="verificando">
   <!-- Iconos (se usan con <svg><use href="#i-nombre"/></svg>) -->
   <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
     <symbol id="i-agave" viewBox="0 0 24 24"><path d="M12 3c-1.5 3-4.5 4.5-4.5 9a4.5 4.5 0 0 0 9 0C16.5 7.5 13.5 6 12 3z"/><path d="M12 21v-4"/></symbol>
@@ -40,6 +40,8 @@
     <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></symbol>
     <symbol id="i-bottle" viewBox="0 0 24 24"><path d="M10 2h4v4l2 3v12a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V9l2-3z"/><path d="M8 12h8v5H8z"/></symbol>
     <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H5v16h5"/><path d="M14 8l4 4-4 4M18 12H9"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
   </svg>
 
@@ -66,6 +68,7 @@
       <span id="estado-api" class="api-pill" data-estado="verificando" role="status">
         <span class="api-pill__dot"></span><span class="api-pill__txt">Verificando API…</span>
       </span>
+      <div id="menu-usuario" class="menu-usuario" hidden></div>
     </div>
   </header>
 

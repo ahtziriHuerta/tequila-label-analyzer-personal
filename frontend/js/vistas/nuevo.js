@@ -1,5 +1,5 @@
 import { VISTAS, REGLAS, IMAGEN } from "../catalogos.js";
-import { conexion, analizar } from "../api.js";
+import { conexion, analizar, sesion } from "../api.js";
 import { esc, icono, tamano, toast, errorArchivo, progresoEstimado, conCamara, botonesFoto } from "../ui.js";
 
 const PASOS = ["Fotografías", "Confirmar"];
@@ -19,6 +19,7 @@ export function vistaNuevo(raiz) {
     paso: 0,
     fotos: new Map(), // vista -> { archivo, url, ancho, alto }  (en el orden de VISTAS al enviar)
     enviando: false,
+    esPrueba: false,
   };
 
   // ---------- Plantillas ----------
@@ -123,7 +124,18 @@ export function vistaNuevo(raiz) {
         </ul>
         ${!conexion.disponible ? `<div class="aviso aviso--alerta">${icono("i-alert")}<span>El backend no responde: enciéndelo antes de iniciar el análisis.</span></div>`
           : !conexion.ocrDisponible ? `<div class="aviso aviso--alerta">${icono("i-alert")}<span>El servidor no tiene Tesseract con idioma español: el análisis fallará. Revisa la pantalla de Configuración.</span></div>` : ""}
-      </section>`;
+      </section>
+      ${sesion.pruebasActivas ? `
+        <section class="tarjeta">
+          <label class="interruptor">
+            <input type="checkbox" class="sr-only" data-prueba ${estado.esPrueba ? "checked" : ""}>
+            <span class="interruptor__pista" aria-hidden="true"></span>
+            <span class="interruptor__texto">
+              <strong>Guardar como prueba</strong>
+              <small>Va al bloque de pruebas del equipo, para comparar cómo evoluciona la lectura. No cuenta en tus métricas.</small>
+            </span>
+          </label>
+        </section>` : ""}`;
   }
 
   function botonera() {
@@ -187,9 +199,9 @@ export function vistaNuevo(raiz) {
     const detener = progresoEstimado(raiz, `Subiendo ${fotos.length} foto(s) y leyendo el texto con OCR…`,
                                      { segundos: 8 * fotos.length });
     try {
-      const resultado = await analizar(fotos.map(([, f]) => f.archivo));
+      const resultado = await analizar(fotos.map(([, f]) => f.archivo), { esPrueba: estado.esPrueba });
       detener();
-      toast(`Análisis #${resultado.id_analisis} guardado`, "ok");
+      toast(`Análisis #${resultado.id_analisis} guardado${estado.esPrueba ? " como prueba" : ""}`, "ok");
       location.hash = `#/analisis/${resultado.id_analisis}`;
     } catch (err) {
       detener();
@@ -203,6 +215,7 @@ export function vistaNuevo(raiz) {
   // ---------- Eventos ----------
   raiz.addEventListener("change", e => {
     if (e.target.matches('input[type="file"]')) cargarFoto(e.target.dataset.vista, e.target.files[0]);
+    if (e.target.matches("[data-prueba]")) estado.esPrueba = e.target.checked;
   });
 
   raiz.addEventListener("click", e => {
