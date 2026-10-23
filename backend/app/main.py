@@ -4,14 +4,20 @@ from pathlib import Path
 import threading
 from urllib.parse import urlsplit
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import pytesseract
 from fastapi.middleware.cors import CORSMiddleware
 
+# Claves y opciones locales (GEMINI_API_KEY, OCR_MOTOR...): backend/.env, fuera de git.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
 from app import basedatos
 from app.routers import analisis, auth
+from app.services.analizador import cadena_motores
+from app.services.gemini_ocr import gemini_configurado, modelo as gemini_modelo
 from app.services.seguridad import usuario_actual
 
 
@@ -162,17 +168,29 @@ def salud():
         idiomas = []
         tesseract_disponible = False
 
-    motor = (
-        "paddleocr" if paddle_disponible
-        else "tesseract" if tesseract_disponible
-        else None
-    )
+    # Primer motor de la cadena que está disponible (ver analizador.cadena_motores).
+    disponibles = {
+        "gemini": gemini_configurado(),
+        "paddle": paddle_disponible,
+        "tesseract": tesseract_disponible,
+    }
+    cadena = [m for m in cadena_motores() if disponibles[m]]
+    principal = cadena[0] if cadena else None
+
+    motor = {"gemini": "gemini", "paddle": "paddleocr", "tesseract": "tesseract"}.get(principal)
+    version = {
+        "gemini": f"Gemini ({gemini_modelo()})",
+        "paddleocr": "PaddleOCR",
+        "tesseract": f"Tesseract {version_tesseract}",
+    }.get(motor)
 
     return {
         "estado": "ok",
         "ocr": motor,
         "ocr_disponible": motor is not None,
-        "ocr_version": "PaddleOCR" if motor == "paddleocr" else version_tesseract,
+        "ocr_version": version,
+        "ocr_respaldo": cadena[1:],
+        "gemini_disponible": disponibles["gemini"],
         "ocr_idiomas": idiomas,
         "paddleocr_disponible": paddle_disponible,
         "tesseract_disponible": tesseract_disponible,

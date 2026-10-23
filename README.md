@@ -13,7 +13,7 @@ El sistema facilita la identificación de datos, la revisión de requisitos, la 
 ## 🚀 Características principales
 
 - 📷 **Análisis multimagen:** permite cargar varias fotografías de una misma botella.
-- 🧠 **OCR inteligente:** utiliza PaddleOCR como motor principal y Tesseract como respaldo.
+- 🧠 **Lectura de fotos:** Gemini (si hay `GEMINI_API_KEY` en `backend/.env`) como lector principal, con PaddleOCR y Tesseract de respaldo. El modelo solo transcribe; las reglas deciden.
 - 🔎 **Detección de información:** identifica textos y elementos relevantes del etiquetado.
 - 📋 **Validación de requisitos:** evalúa la información mediante reglas automatizadas.
 - 🖼️ **Evidencia fotográfica:** relaciona los resultados con las imágenes analizadas.
@@ -35,7 +35,8 @@ El sistema facilita la identificación de datos, la revisión de requisitos, la 
 | Servidor | Uvicorn |
 | Frontend | HTML5, CSS3 y JavaScript |
 | Aplicación web | Progressive Web App (PWA) |
-| OCR principal | PaddleOCR 3.x |
+| Lectura principal | Gemini (API de Google), configurable en `backend/.env` |
+| OCR local | PaddleOCR 3.x |
 | Motor de procesamiento | PaddlePaddle 3.3.1 |
 | OCR alternativo | Tesseract OCR |
 | Procesamiento de imágenes | OpenCV |
@@ -63,7 +64,9 @@ Procesamiento de imágenes
   v
 Reconocimiento OCR
   |
-  +---- PaddleOCR (principal)
+  +---- Gemini (principal, si hay GEMINI_API_KEY)
+  |
+  +---- PaddleOCR (respaldo)
   |
   +---- Tesseract (respaldo ante errores)
   |
@@ -96,19 +99,45 @@ Visualización del reporte
 
 ## 📋 Requisitos de etiquetado
 
-El proyecto contempla 18 requisitos de evaluación.
+La herramienta sigue el formato del Consejo Regulador del Tequila **«Requisitos de etiquetado para la NOM-006-SCFI-2012» (MO-RV/20)**
+(copia en `docs/CRT_Requisitos_Etiquetado_NOM-006-SCFI-2012.pdf`) y las normas a las que remite: NOM-006, NOM-030 (cantidad),
+NOM-142 (etiquetado sanitario) y NOM-106 (contraseña NOM). Las reglas están en `backend/app/services/reglas.py`.
 
-Actualmente están implementadas cinco reglas:
+**Antes de las fotos** se captura el encabezado del formato:
 
-| Código | Elemento evaluado | Estado |
+| Dato | Cómo se captura | Para qué sirve |
 |---|---|---|
-| ET-01 | Denominación Tequila | Implementado |
-| ET-02 | Identificación de agave | Implementado |
-| ET-03 | Clase de tequila | Implementado |
-| ET-05 | Contenido neto | Implementado |
-| ET-07 | Graduación alcohólica | Implementado |
+| Destino (nacional / exportación) | Selección | Qué datos deben ir en la superficie principal (marcas + y ° del formato) |
+| Categoría, clase | Selección (o «leer de la etiqueta») | Se comparan con lo leído |
+| Presentación (mL) | Selección de las comunes o captura | Se compara con el contenido neto leído |
+| ¿Lleva saborizantes o aditivos? | Selección (No / Sí / No sé) | Con «No», saborizante e ingredientes quedan como N/A |
+| Marca, empresa, % Alc. Vol. | Manual | La marca se busca en la etiqueta; el alcohol se compara |
+| Inspector, fecha | Automáticos (la cuenta y el día) | — |
 
-Los demás requisitos se encuentran pendientes de implementación.
+Lo declarado **no sustituye** a la etiqueta: si no coincide con lo leído, el requisito pasa a «Revisión manual». Todo se puede
+corregir después desde el reporte (se reevalúa sin volver a leer las fotos). Cada foto se envía con su **vista**; la frontal es la
+superficie principal de exhibición (NOM-006 11.2.1).
+
+| Código | Renglón del formato | Qué revisa la regla |
+|---|---|---|
+| ET-01 | Palabra «Tequila» | Palabra completa; no cuenta «Tequila, Jal.» del domicilio |
+| ET-02 | Categoría | Las 4 leyendas de 100 % (NOM-006 5.1.1); «Tequila» si se declaró mixto |
+| ET-03 | Clase | Blanco/Plata, Joven/Oro, Reposado, Añejo, Extra añejo y sus nombres de exportación |
+| ET-04 | Saborizante o colorante | N/A sin aditivos; si los lleva, busca la leyenda |
+| ET-05 | Contenido neto | Símbolo mL o L de la Tabla 3 de NOM-030; mL abajo de 1 L |
+| ET-07 | Contenido alcohólico | % Alc. Vol. entre 35 y 55 (NOM-006 Tabla 1); fuera de rango = probable error de lectura |
+| ET-08 | Nombre o razón social | «Elaborado/Envasado por» y S.A. de C.V., S. de R.L., S.A.P.I. de C.V.… |
+| ET-09 | Domicilio | Código postal y entidad federativa (NOM-142 9.3.2.1) |
+| ET-10 | Marca registrada | La marca declarada (también lectura aproximada) |
+| ET-11 | Hecho en México | «Hecho en México» y análogas; «Product of Mexico» |
+| ET-12 | Contraseña oficial (NOM) | «NOM» y número de registro; el diseño (NOM-106) lo verifica el inspector |
+| ET-13 | Lote | LOTE, LOT, LT o L + clave (NOM-142 9.3.4.3) |
+| ET-14 | Leyenda precautoria | Texto exacto de NOM-142 9.3.7.2.1 |
+| ET-19 | Lista de ingredientes | N/A sin aditivos (NOM-142 9.3.7.1) |
+| ET-15 | Símbolos | Siempre revisión visual (NOM-142 Apéndice A) |
+
+**Dictamen del inspector:** por cada renglón, *Cumple* Sí / No / N/A, información incorrecta, información correcta
+(obligatoria si no cumple, nota *** del formato) y observaciones. El reporte muestra el formato MO-RV/20 lleno y se imprime.
 
 ### Clasificación de resultados
 
@@ -119,6 +148,7 @@ Cada requisito puede presentar alguno de los siguientes estados:
 - **Baja legibilidad:** la calidad de la imagen dificulta la lectura.
 - **Imagen adicional requerida:** se necesita otra fotografía para continuar la revisión.
 - **Revisión manual:** el resultado requiere confirmación visual.
+- **No aplica:** el requisito no aplica según los datos declarados.
 
 La detección automática no equivale por sí sola a una determinación oficial de cumplimiento.
 
@@ -209,6 +239,10 @@ Para utilizar la versión que integra PaddleOCR:
 ```bash
 git switch integracion-marcos-ahtziri
 ```
+
+Para leer las fotos con Gemini, copia `backend/.env.example` como `backend/.env` y pon tu `GEMINI_API_KEY`
+(el archivo `.env` no se sube a git). Las fotos se envían a Google: con una clave de nivel gratuito Google puede usar
+esos datos, así que no la uses con etiquetas confidenciales.
 
 ### 3. Crear un entorno virtual
 
@@ -370,11 +404,13 @@ Abrir la URL HTTPS proporcionada y añadir `/app/`.
 | POST | `/auth/salir` | Cerrar sesión |
 | GET | `/auth/yo` | Usuario de la sesión actual |
 | POST | `/auth/cambiar-contrasena` | Cambiar la contraseña; cierra las otras sesiones |
-| POST | `/analisis/imagenes` | Crear análisis con fotografías (`es_prueba` opcional) |
+| POST | `/analisis/imagenes` | Crear análisis con fotografías (`datos` del formato y `vistas` en JSON; `es_prueba` opcional) |
 | GET | `/analisis/historial` | Historial: `?ambito=mios` (predeterminado), `pruebas` o `todos` (administrador, con `usuario_id` opcional) |
 | GET | `/analisis/{id}` | Consultar análisis |
 | DELETE | `/analisis/{id}` | Eliminar análisis (solo administrador) |
-| POST | `/analisis/{id}/imagenes` | Agregar evidencias |
+| POST | `/analisis/{id}/imagenes` | Agregar evidencias (`vistas` opcional) |
+| PUT | `/analisis/{id}/datos` | Capturar o corregir los datos del formato y reevaluar (sin repetir el OCR) |
+| GET / POST | `/analisis/{id}/dictamen` | Dictamen del formato: Sí / No / N/A por requisito |
 | POST | `/analisis/{id}/finalizar` | Finalizar análisis |
 | GET | `/analisis/{id}/revisiones` | Consultar revisiones |
 | POST | `/analisis/{id}/revisiones` | Registrar revisión manual |

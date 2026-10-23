@@ -124,8 +124,8 @@ async function verificarApi() {
   pill.title = !conexion.disponible
     ? "No se pudo contactar al backend (uvicorn en el puerto 8000)"
     : sinOcr
-      ? "El backend responde, pero falta Tesseract con idioma español en el servidor (ver Configuración)"
-      : `Backend y Tesseract ${conexion.ocrVersion ?? ""} disponibles`;
+      ? "El backend responde, pero no hay ningún motor de lectura disponible (ver Configuración)"
+      : `Backend conectado · lectura con ${conexion.ocrVersion ?? "OCR"}`;
 }
 
 // ---------- PWA ----------

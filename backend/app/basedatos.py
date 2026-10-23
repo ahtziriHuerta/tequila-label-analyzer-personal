@@ -45,9 +45,22 @@ COLUMNAS_NUEVAS = {
     },
     "analisis": {
         "es_prueba": "INTEGER NOT NULL DEFAULT 0",
+        # Formato CRT MO-RV/20.
+        "destino": "TEXT",
+        "empresa": "TEXT",
+        "marca": "TEXT",
+        "categoria": "TEXT",
+        "clase": "TEXT",
+        "contenido_ml": "REAL",
+        "alcohol": "REAL",
+        "aditivos": "TEXT",
     },
     "imagenes": {
         "motor_ocr": "TEXT",
+        "vista": "TEXT",
+    },
+    "detecciones": {
+        "observacion": "TEXT",
     },
 }
 

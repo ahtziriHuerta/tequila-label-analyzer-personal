@@ -71,6 +71,19 @@ CREATE TABLE IF NOT EXISTS analisis (
     -- y fuera de las métricas personales.
     es_prueba INTEGER NOT NULL DEFAULT 0,
 
+    -- Datos del formato CRT "Requisitos de etiquetado" (MO-RV/20).
+    -- Los captura quien analiza; NULL = no se declaró.
+    destino TEXT
+        CHECK (destino IN ('nacional', 'exportacion')),
+    empresa TEXT,
+    marca TEXT,
+    categoria TEXT,
+    clase TEXT,
+    contenido_ml REAL,
+    alcohol REAL,
+    -- 'si', 'no' o 'no_se': decide si aplican saborizantes e ingredientes.
+    aditivos TEXT,
+
     FOREIGN KEY (usuario_id)
         REFERENCES usuarios(id)
         ON DELETE RESTRICT
@@ -90,6 +103,9 @@ CREATE TABLE IF NOT EXISTS imagenes (
     confianza_ocr REAL,
     -- 'paddleocr' o 'tesseract'; permite comparar motores en las pruebas.
     motor_ocr TEXT,
+    -- Vista de la botella: frontal, posterior, lote, lateral, cuello,
+    -- simbolos u otra. La frontal es la superficie principal de exhibición.
+    vista TEXT,
     fecha_carga TEXT NOT NULL
         DEFAULT CURRENT_TIMESTAMP,
 
@@ -121,6 +137,8 @@ CREATE TABLE IF NOT EXISTS detecciones (
     codigo_regla TEXT NOT NULL,
     valor TEXT,
     estado TEXT NOT NULL,
+    -- Explicación de la regla (formato, comparación con lo declarado...).
+    observacion TEXT,
     fecha_deteccion TEXT NOT NULL
         DEFAULT CURRENT_TIMESTAMP,
 
@@ -239,3 +257,40 @@ ON revisiones_manuales(usuario_id);
 
 CREATE INDEX IF NOT EXISTS idx_revisiones_fecha
 ON revisiones_manuales(fecha_revision);
+
+
+-- ==========================================
+-- 7. DICTAMEN DEL FORMATO CRT (MO-RV/20)
+-- ==========================================
+-- Lo que marca el inspector por requisito: cumple SI / NO / N/A,
+-- la información incorrecta, cómo debe decir y observaciones.
+-- Se guarda el historial; vale el más reciente de cada requisito.
+
+CREATE TABLE IF NOT EXISTS dictamenes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    analisis_id INTEGER NOT NULL,
+    codigo_regla TEXT NOT NULL,
+    usuario_id INTEGER NOT NULL,
+    cumple TEXT NOT NULL
+        CHECK (cumple IN ('SI', 'NO', 'NA')),
+    informacion_incorrecta TEXT,
+    informacion_correcta TEXT,
+    observaciones TEXT,
+    fecha TEXT NOT NULL
+        DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (analisis_id)
+        REFERENCES analisis(id)
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (codigo_regla)
+        REFERENCES reglas(codigo)
+        ON DELETE RESTRICT,
+
+    FOREIGN KEY (usuario_id)
+        REFERENCES usuarios(id)
+        ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_dictamenes_analisis
+ON dictamenes(analisis_id);

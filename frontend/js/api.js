@@ -7,7 +7,7 @@ export const API_URL = location.port === "5500"
   : location.origin;
 
 // Estado de conexión con el backend; app.js lo actualiza periódicamente con /salud.
-export const conexion = { disponible: false, ocr: null, ocrDisponible: false, ocrVersion: null };
+export const conexion = { disponible: false, ocr: null, ocrDisponible: false, ocrVersion: null, ocrRespaldo: [] };
 
 // Usuario de la sesión; lo llena sesion.js con /auth/yo o al iniciar sesión.
 export const sesion = { usuario: null, pruebasActivas: false };
@@ -90,30 +90,54 @@ export function cambiarContrasena(actual, nueva) {
 export async function salud() {
   try {
     const d = await pedir("/salud", {}, 4000);
-    Object.assign(conexion, { ocr: d.ocr ?? null, ocrDisponible: !!d.ocr_disponible, ocrVersion: d.ocr_version ?? null });
+    Object.assign(conexion, {
+      ocr: d.ocr ?? null, ocrDisponible: !!d.ocr_disponible,
+      ocrVersion: d.ocr_version ?? null, ocrRespaldo: d.ocr_respaldo ?? [],
+    });
     return d.estado === "ok";
   } catch {
     return false;
   }
 }
 
-function formulario(archivos) {
+// vistas: vista de cada foto ("frontal", "posterior"...), en el mismo orden que los archivos.
+function formulario(archivos, vistas = null) {
   const form = new FormData();
   archivos.forEach(a => form.append("archivos", a));
+  if (vistas) form.append("vistas", JSON.stringify(vistas));
   return form;
 }
 
 // Crea el análisis: sube las fotos, ejecuta OCR + reglas y lo guarda en SQLite.
-// esPrueba: lo guarda en el bloque de pruebas del equipo.
-export function analizar(archivos, { esPrueba = false } = {}) {
-  const form = formulario(archivos);
+// datos: encabezado del formato CRT (ver formato.js). esPrueba: bloque de pruebas del equipo.
+export function analizar(archivos, { esPrueba = false, vistas = null, datos = null } = {}) {
+  const form = formulario(archivos, vistas);
+  if (datos) form.append("datos", JSON.stringify(datos));
   if (esPrueba) form.append("es_prueba", "true");
   return pedir("/analisis/imagenes", { method: "POST", body: form }, TIEMPO_OCR);
 }
 
 // CU-06: agrega fotos a un análisis existente; solo se leen las nuevas y se reevalúan las reglas.
-export function agregarEvidencia(idAnalisis, archivos) {
-  return pedir(`/analisis/${idAnalisis}/imagenes`, { method: "POST", body: formulario(archivos) }, TIEMPO_OCR);
+export function agregarEvidencia(idAnalisis, archivos, vistas = null) {
+  return pedir(`/analisis/${idAnalisis}/imagenes`, { method: "POST", body: formulario(archivos, vistas) }, TIEMPO_OCR);
+}
+
+// Captura o corrige los datos del formato; el servidor vuelve a evaluar sin repetir el OCR.
+export function actualizarDatos(idAnalisis, datos) {
+  return pedir(`/analisis/${idAnalisis}/datos`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(datos),
+  });
+}
+
+// Dictamen del inspector en un renglón del formato: cumple SI | NO | NA.
+export function guardarDictamen(idAnalisis, dictamen) {
+  return pedir(`/analisis/${idAnalisis}/dictamen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(dictamen),
+  });
 }
 
 // Análisis propios (sin las pruebas).
@@ -160,7 +184,9 @@ export const urlImagen = idImagen => `${API_URL}/imagenes/${idImagen}`;
 export const fechaServidor = f => (f ? `${f.replace(" ", "T")}Z` : null);
 
 // Convierte la respuesta de GET /analisis/{id} al formato que usan las vistas.
-export function desdeServidor({ analisis, imagenes, detecciones, evidencias = [] }) {
+const CAMPOS_DATOS = ["destino", "empresa", "marca", "categoria", "clase", "contenido_ml", "alcohol", "aditivos"];
+
+export function desdeServidor({ analisis, imagenes, detecciones, evidencias = [], dictamenes = [] }) {
   const numero = new Map(imagenes.map((img, i) => [img.id, i + 1]));
   return {
     id: analisis.id,
@@ -169,13 +195,17 @@ export function desdeServidor({ analisis, imagenes, detecciones, evidencias = []
     esPrueba: !!analisis.es_prueba,
     finalizado: analisis.estado === "Finalizado",
     fecha: fechaServidor(analisis.fecha_creacion),
+    datos: Object.fromEntries(CAMPOS_DATOS.map(c => [c, analisis[c] ?? null])),
     imagenes: imagenes.map((img, i) => ({
       id: img.id,
       numero: i + 1,
       url: urlImagen(img.id),
       confianza: img.confianza_ocr,
+      motor: img.motor_ocr ?? null,
+      vista: img.vista ?? null,
       texto: img.texto_ocr ?? "",
     })),
+    dictamenes,
     evidencias: evidencias.map(e => ({
       id: e.id,
       deteccionId: e.deteccion_id,
@@ -190,6 +220,7 @@ export function desdeServidor({ analisis, imagenes, detecciones, evidencias = []
       requisito: d.requisito,
       valor: d.valor,
       estado: d.estado,
+      observacion: d.observacion ?? null,
       imagenId: d.imagen_id,
       numeroImagen: numero.get(d.imagen_id) ?? null,
     })),

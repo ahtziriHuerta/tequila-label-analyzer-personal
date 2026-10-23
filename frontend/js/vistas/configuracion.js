@@ -1,4 +1,4 @@
-import { REGLAS, TOTAL_REGLAS_ET, IMAGEN } from "../catalogos.js";
+import { REGLAS, SECCIONES, IMAGEN, MOTORES_OCR } from "../catalogos.js";
 import { API_URL, conexion, salud, sesion } from "../api.js";
 import { esc, icono, tamano, toast } from "../ui.js";
 import { nombreRol, establecerSesion, navegacion } from "../sesion.js";
@@ -56,14 +56,17 @@ export function vistaConfiguracion(raiz) {
         <dl class="datos">
           <div><dt>Conexión</dt><dd>${ok ? "API conectada" : "Sin conexión"}</dd></div>
           <div><dt>Dirección de la API</dt><dd><code>${esc(API_URL)}</code></dd></div>
-          <div><dt>Motor OCR</dt><dd>${!ok ? "—"
-            : conexion.ocrDisponible ? `Tesseract ${esc(conexion.ocrVersion ?? "")}`
-            : conexion.ocrVersion ? `Tesseract ${esc(conexion.ocrVersion)} sin idioma español` : "Tesseract no instalado"}</dd></div>
+          <div><dt>Lectura de fotos</dt><dd>${!ok ? "—"
+            : conexion.ocrDisponible ? esc(conexion.ocrVersion ?? "") : "Ningún motor disponible"}</dd></div>
+          ${ok && conexion.ocrRespaldo.length ? `<div><dt>Respaldo</dt><dd>${conexion.ocrRespaldo.map(m => esc(MOTORES_OCR[m === "paddle" ? "paddleocr" : m] ?? m)).join(", ")}</dd></div>` : ""}
         </dl>
         ${ok && !conexion.ocrDisponible ? `
           <div class="aviso aviso--alerta" style="margin-top:14px">${icono("i-alert")}<span>El backend responde, pero el OCR no está listo:
-            hace falta Tesseract con los idiomas español (<code>spa</code>) e inglés (<code>eng</code>) en la computadora
-            que corre el servidor. Consulta el README y vuelve a probar.</span></div>` : ""}
+            configura <code>GEMINI_API_KEY</code> en <code>backend/.env</code>, o instala PaddleOCR o Tesseract
+            (con español <code>spa</code>) en la computadora que corre el servidor. Consulta el README.</span></div>` : ""}
+        ${ok && conexion.ocr === "gemini" ? `
+          <div class="aviso aviso--info" style="margin-top:14px">${icono("i-info")}<span>Las fotos se envían a Google (Gemini) para leerlas.
+            No uses etiquetas confidenciales con una clave de nivel gratuito.</span></div>` : ""}
         <div class="acciones" style="margin-top:14px">
           <button type="button" class="btn btn--secundario" data-accion="probar">${icono("i-check")}Probar conexión</button>
         </div>
@@ -79,11 +82,14 @@ export function vistaConfiguracion(raiz) {
       </section>
 
       <section class="tarjeta">
-        <header class="tarjeta__cabecera"><h2>Requisitos evaluados (${REGLAS.length} de ${TOTAL_REGLAS_ET})</h2></header>
-        <ul class="lista-simple">
-          ${REGLAS.map(r => `<li><span class="codigo">${esc(r.codigo)}</span> ${esc(r.requisito)}</li>`).join("")}
-        </ul>
-        <p class="nota">Las demás reglas de la matriz ET se agregan en <code>backend/app/services/reglas.py</code>.</p>
+        <header class="tarjeta__cabecera"><h2>Requisitos evaluados (${REGLAS.length})</h2></header>
+        <p class="texto-suave texto-chico">Formato del CRT «Requisitos de etiquetado para la NOM-006-SCFI-2012» (MO-RV/20).</p>
+        ${Object.entries(SECCIONES).map(([id, titulo]) => `
+          <h3 class="subtitulo">${esc(titulo)}</h3>
+          <ul class="lista-simple">
+            ${REGLAS.filter(r => r.seccion === id).map(r => `<li><span class="codigo">${esc(r.codigo)}</span> ${esc(r.requisito)}</li>`).join("")}
+          </ul>`).join("")}
+        <p class="nota">Las reglas están en <code>backend/app/services/reglas.py</code>.</p>
       </section>
 
       <section class="tarjeta">
@@ -100,7 +106,7 @@ export function vistaConfiguracion(raiz) {
     if (e.target.closest("[data-accion]")?.dataset.accion !== "probar") return;
     conexion.disponible = await salud();
     toast(!conexion.disponible ? "No se pudo contactar al servidor."
-          : conexion.ocrDisponible ? "Servidor y OCR funcionando." : "El servidor responde, pero falta Tesseract.",
+          : conexion.ocrDisponible ? "Servidor y lectura de fotos funcionando." : "El servidor responde, pero no hay motor de lectura.",
           conexion.disponible && conexion.ocrDisponible ? "ok" : "error");
     if (raiz.isConnected) pintar();
   });

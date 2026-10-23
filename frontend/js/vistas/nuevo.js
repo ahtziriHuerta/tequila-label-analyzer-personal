@@ -1,8 +1,11 @@
 import { VISTAS, REGLAS, IMAGEN } from "../catalogos.js";
 import { conexion, analizar, sesion } from "../api.js";
 import { esc, icono, tamano, toast, errorArchivo, progresoEstimado, conCamara, botonesFoto } from "../ui.js";
+import { camposDatos, leerDatos, resumenDatos } from "../formato.js";
 
-const PASOS = ["Fotografías", "Confirmar"];
+// 1. Datos del formato CRT (lo que la foto no puede saber o conviene comparar),
+// 2. fotos por vista, 3. confirmar.
+const PASOS = ["Datos", "Fotografías", "Confirmar"];
 const nombreVista = id => VISTAS.find(v => v.id === id)?.nombre ?? id;
 
 function leerDimensiones(url) {
@@ -17,6 +20,7 @@ function leerDimensiones(url) {
 export function vistaNuevo(raiz) {
   const estado = {
     paso: 0,
+    datos: { destino: "nacional", aditivos: "no_se" },
     fotos: new Map(), // vista -> { archivo, url, ancho, alto }  (en el orden de VISTAS al enviar)
     enviando: false,
     esPrueba: false,
@@ -33,6 +37,24 @@ export function vistaNuevo(raiz) {
             <span class="stepper__txt">${p}</span>
           </li>`).join("")}
       </ol>`;
+  }
+
+  function pasoDatos() {
+    return `
+      <section class="tarjeta">
+        <header class="tarjeta__cabecera">
+          <div>
+            <h2>Datos del producto</h2>
+            <p class="texto-suave">Encabezado del formato del CRT «Requisitos de etiquetado NOM-006» (MO-RV/20).
+              Lo que no sepas, déjalo vacío: se toma de lo que se lea en las fotos, y puedes completarlo después en el reporte.</p>
+          </div>
+        </header>
+        <form id="form-datos" class="form-datos" novalidate>
+          ${camposDatos(estado.datos, { inspector: sesion.usuario?.nombre ?? "" })}
+        </form>
+        <div class="aviso aviso--info">${icono("i-info")}<span>Lo declarado <strong>no sustituye</strong> a la etiqueta:
+          sirve para comparar. Si no coincide con lo leído, el requisito pasa a revisión.</span></div>
+      </section>`;
   }
 
   function tarjetaFoto(v) {
@@ -83,7 +105,9 @@ export function vistaNuevo(raiz) {
         <header class="tarjeta__cabecera">
           <div>
             <h2>Fotografías de la botella</h2>
-            <p class="texto-suave">Una foto por vista. Buena luz, sin flash directo y con el texto enfocado.</p>
+            <p class="texto-suave">Una foto por vista. Buena luz, sin flash directo y con el texto enfocado.
+              La <strong>frontal</strong> es la superficie principal: ahí deben ir denominación, categoría, clase, marca,
+              contenido y % Alc. Vol. (NOM-006 11.2.1).</p>
           </div>
         </header>
         ${faltan.length
@@ -103,8 +127,13 @@ export function vistaNuevo(raiz) {
     const sinCobertura = cobertura.filter(r => !r.ok);
     return `
       <section class="tarjeta">
-        <header class="tarjeta__cabecera"><h2>Imágenes (${estado.fotos.size})</h2>
+        <header class="tarjeta__cabecera"><h2>Datos del producto</h2>
           <button type="button" class="btn btn--texto" data-ir="0">Editar</button></header>
+        ${resumenDatos(estado.datos)}
+      </section>
+      <section class="tarjeta">
+        <header class="tarjeta__cabecera"><h2>Imágenes (${estado.fotos.size})</h2>
+          <button type="button" class="btn btn--texto" data-ir="1">Editar</button></header>
         <div class="miniaturas">
           ${ordenadas().map(([vista, f], i) => `
             <figure><img src="${f.url}" alt=""><figcaption>${i + 1}. ${esc(nombreVista(vista))}</figcaption></figure>`).join("")}
@@ -113,17 +142,17 @@ export function vistaNuevo(raiz) {
       <section class="tarjeta">
         <header class="tarjeta__cabecera">
           <div><h2>Cobertura de requisitos</h2>
-          <p class="texto-suave">Vista previa según las vistas cargadas, antes del OCR.</p></div>
+          <p class="texto-suave">Vista previa según las vistas cargadas, antes de leer las fotos.</p></div>
         </header>
         ${sinCobertura.length
           ? `<div class="aviso aviso--alerta">${icono("i-alert")}<span>${sinCobertura.length} requisito(s) no tienen una vista donde suelen aparecer. Puedes continuar y agregar fotos después desde el reporte.</span></div>`
-          : `<div class="aviso aviso--ok">${icono("i-check")}<span>Todos los requisitos evaluados tienen al menos una vista asociada.</span></div>`}
+          : `<div class="aviso aviso--ok">${icono("i-check")}<span>Todos los requisitos tienen al menos una vista asociada.</span></div>`}
         <ul class="cobertura">
           ${cobertura.map(r => `<li class="${r.ok ? "is-ok" : "is-falta"}">${icono(r.ok ? "i-check" : "i-image-add")}
               <span class="codigo">${r.codigo}</span>${esc(r.requisito)}</li>`).join("")}
         </ul>
         ${!conexion.disponible ? `<div class="aviso aviso--alerta">${icono("i-alert")}<span>El backend no responde: enciéndelo antes de iniciar el análisis.</span></div>`
-          : !conexion.ocrDisponible ? `<div class="aviso aviso--alerta">${icono("i-alert")}<span>El servidor no tiene Tesseract con idioma español: el análisis fallará. Revisa la pantalla de Configuración.</span></div>` : ""}
+          : !conexion.ocrDisponible ? `<div class="aviso aviso--alerta">${icono("i-alert")}<span>El servidor no tiene ningún motor de lectura disponible: el análisis fallará. Revisa la pantalla de Configuración.</span></div>` : ""}
       </section>
       ${sesion.pruebasActivas ? `
         <section class="tarjeta">
@@ -151,8 +180,14 @@ export function vistaNuevo(raiz) {
       </div>`;
   }
 
+  // Guarda lo escrito en el paso de datos antes de cambiar de paso o repintar.
+  function recordarDatos() {
+    const form = raiz.querySelector("#form-datos");
+    if (form) estado.datos = leerDatos(form);
+  }
+
   function pintar() {
-    const contenido = [pasoFotos, pasoConfirmar][estado.paso]();
+    const contenido = [pasoDatos, pasoFotos, pasoConfirmar][estado.paso]();
     raiz.innerHTML = `
       <div class="encabezado-vista">
         <a href="#/" class="volver">${icono("i-arrow-left")}Inicio</a>
@@ -196,10 +231,14 @@ export function vistaNuevo(raiz) {
     estado.enviando = true;
     pintar();
     const fotos = ordenadas();
-    const detener = progresoEstimado(raiz, `Subiendo ${fotos.length} foto(s) y leyendo el texto con OCR…`,
-                                     { segundos: 8 * fotos.length });
+    const detener = progresoEstimado(raiz, `Subiendo ${fotos.length} foto(s) y leyendo el texto…`,
+                                     { segundos: 12 * fotos.length });
     try {
-      const resultado = await analizar(fotos.map(([, f]) => f.archivo), { esPrueba: estado.esPrueba });
+      const resultado = await analizar(fotos.map(([, f]) => f.archivo), {
+        esPrueba: estado.esPrueba,
+        vistas: fotos.map(([vista]) => vista),
+        datos: estado.datos,
+      });
       detener();
       toast(`Análisis #${resultado.id_analisis} guardado${estado.esPrueba ? " como prueba" : ""}`, "ok");
       location.hash = `#/analisis/${resultado.id_analisis}`;
@@ -223,16 +262,28 @@ export function vistaNuevo(raiz) {
     if (quitar) return quitarFoto(quitar.dataset.quitar);
 
     const ir = e.target.closest("[data-ir]");
-    if (ir) { estado.paso = +ir.dataset.ir; return pintar(); }
+    if (ir) { recordarDatos(); estado.paso = +ir.dataset.ir; return pintar(); }
 
     const accion = e.target.closest("[data-accion]")?.dataset.accion;
-    if (accion === "atras") { estado.paso--; pintar(); }
+    if (accion === "atras") { recordarDatos(); estado.paso--; pintar(); }
     if (accion === "siguiente") {
-      if (estado.fotos.size === 0) return toast("Agrega al menos una fotografía para continuar.", "error");
+      recordarDatos();
+      const alcohol = estado.datos.alcohol;
+      if (estado.paso === 0 && alcohol != null && (alcohol < 35 || alcohol > 55)) {
+        toast("El tequila se envasa entre 35 y 55 % Alc. Vol. (NOM-006 Tabla 1); revisa el valor declarado.", "error");
+      }
+      if (estado.paso === 1 && estado.fotos.size === 0) return toast("Agrega al menos una fotografía para continuar.", "error");
       estado.paso++;
       pintar();
     }
     if (accion === "enviar" && !estado.enviando) enviar();
+  });
+
+  // Enter en un campo de datos = Continuar (no enviar el formulario).
+  raiz.addEventListener("submit", e => {
+    if (e.target.id !== "form-datos") return;
+    e.preventDefault();
+    raiz.querySelector('[data-accion="siguiente"]')?.click();
   });
 
   // Arrastrar y soltar sobre una tarjeta de vista vacía (PC)

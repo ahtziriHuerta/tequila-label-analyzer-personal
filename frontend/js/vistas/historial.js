@@ -12,7 +12,7 @@ const PESTANAS = [
   { id: "todos", texto: "Todos", soloAdmin: true },
 ];
 
-const MOTORES = { paddleocr: "Paddle", tesseract: "Tesseract" };
+const MOTORES = { gemini: "Gemini", paddleocr: "Paddle", tesseract: "Tesseract" };
 
 function estadoGeneral(a) {
   if (!a.total_detecciones) return "Revisión manual"; // sin reglas evaluadas
@@ -39,7 +39,7 @@ export function filaAnalisis(a, { eliminable = false, autor = false } = {}) {
       <a class="lista-item__link" href="#/analisis/${esc(a.id)}">
         <span class="lista-item__icono">${icono("i-bottle")}</span>
         <span class="lista-item__cuerpo">
-          <strong>Análisis #${esc(a.id)}${a.es_prueba ? ' <span class="chip chip--prueba">Prueba</span>' : ""}${finalizado ? ' <span class="chip">Finalizado</span>' : ""}</strong>
+          <strong>Análisis #${esc(a.id)}${a.marca ? ` · ${esc(a.marca)}${a.clase ? ` ${esc(a.clase)}` : ""}` : ""}${a.es_prueba ? ' <span class="chip chip--prueba">Prueba</span>' : ""}${finalizado ? ' <span class="chip">Finalizado</span>' : ""}</strong>
           <small>${detalle}</small>
         </span>
         <span class="lista-item__meta">

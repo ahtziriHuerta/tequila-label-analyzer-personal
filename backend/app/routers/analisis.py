@@ -1,6 +1,7 @@
 
 """Endpoints para el análisis de etiquetado de tequila."""
 
+import json
 import os
 import shutil
 import uuid
@@ -9,10 +10,11 @@ from typing import List
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from typing import Literal
 from app.basedatos import obtener_conexion
 from app.services.analizador import analizar_imagenes
+from app.services.reglas import ADITIVOS, CATEGORIAS, CLASES, DESTINOS
 from app.services.seguridad import es_admin, pruebas_activas, requiere_admin, usuario_actual
 
 
@@ -83,11 +85,93 @@ def motor_ocr(imagen) -> str | None:
     """Motor que leyó la foto, para comparar en el bloque de pruebas."""
 
     version = imagen.get("version")
-    if version == "paddleocr":
-        return "paddleocr"
+    if version in ("paddleocr", "gemini"):
+        return version
     if version in (None, "guardado"):
         return None
     return "tesseract"
+
+
+# ==========================================
+# DATOS DEL FORMATO CRT (MO-RV/20)
+# ==========================================
+
+VISTAS = {"frontal", "posterior", "lote", "lateral", "cuello", "simbolos", "otra"}
+
+CAMPOS_DATOS = (
+    "destino", "empresa", "marca", "categoria",
+    "clase", "contenido_ml", "alcohol", "aditivos",
+)
+
+
+class DatosDeclarados(BaseModel):
+    """
+    Encabezado del formato del CRT. Todo es opcional:
+    lo que no se declare se toma solo de lo que se lea
+    en las fotos.
+    """
+
+    destino: Literal[DESTINOS] | None = None
+    empresa: str | None = Field(default=None, max_length=200)
+    marca: str | None = Field(default=None, max_length=120)
+    categoria: Literal[CATEGORIAS] | None = None
+    clase: Literal[CLASES] | None = None
+    contenido_ml: float | None = Field(default=None, gt=0, le=5000)
+    alcohol: float | None = Field(default=None, gt=0, le=100)
+    aditivos: Literal[ADITIVOS] | None = None
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def vacio_es_none(cls, valor):
+        if isinstance(valor, str):
+            valor = valor.strip()
+            return valor or None
+        return valor
+
+
+def leer_datos(texto: str | None) -> dict:
+    """Validar el JSON de datos que llega en el formulario."""
+
+    if not texto:
+        return {}
+
+    try:
+        return DatosDeclarados.model_validate(json.loads(texto)).model_dump()
+    except (ValueError, ValidationError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Datos del producto no válidos: {error}"
+        )
+
+
+def leer_vistas(texto: str | None, cantidad: int) -> list:
+    """Lista de vistas, una por foto (o None si no se indicó)."""
+
+    if not texto:
+        return [None] * cantidad
+
+    try:
+        vistas = json.loads(texto)
+    except ValueError:
+        vistas = None
+
+    if (
+        not isinstance(vistas, list)
+        or len(vistas) != cantidad
+        or any(v is not None and v not in VISTAS for v in vistas)
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Las vistas deben ser una lista con una vista válida por foto."
+        )
+
+    return vistas
+
+
+def datos_de(analisis) -> dict:
+    """Datos declarados guardados en la fila del análisis."""
+
+    return {campo: analisis[campo] for campo in CAMPOS_DATOS}
 
 
 def registrar_reglas(conexion, reglas):
@@ -114,15 +198,24 @@ def registrar_reglas(conexion, reglas):
         )
 
 
-def guardar_resultado(conexion, resultado, rutas, usuario_id, es_prueba=False):
-    """Guardar análisis, imágenes y detecciones."""
+def guardar_resultado(conexion, resultado, rutas, usuario_id, es_prueba=False,
+                      datos=None, vistas=None):
+    """Guardar análisis (con los datos del formato), imágenes y detecciones."""
+
+    datos = datos or {}
+    vistas = vistas or [None] * len(rutas)
 
     cursor = conexion.execute(
-        """
-        INSERT INTO analisis (usuario_id, estado, es_prueba)
-        VALUES (?, ?, ?)
+        f"""
+        INSERT INTO analisis (usuario_id, estado, es_prueba, {", ".join(CAMPOS_DATOS)})
+        VALUES (?, ?, ?, {", ".join("?" * len(CAMPOS_DATOS))})
         """,
-        (usuario_id, "Revisión pendiente", int(es_prueba))
+        (
+            usuario_id,
+            "Revisión pendiente",
+            int(es_prueba),
+            *(datos.get(campo) for campo in CAMPOS_DATOS)
+        )
     )
 
     analisis_id = cursor.lastrowid
@@ -142,9 +235,10 @@ def guardar_resultado(conexion, resultado, rutas, usuario_id, es_prueba=False):
                 ruta_archivo,
                 texto_ocr,
                 confianza_ocr,
-                motor_ocr
+                motor_ocr,
+                vista
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 analisis_id,
@@ -152,7 +246,8 @@ def guardar_resultado(conexion, resultado, rutas, usuario_id, es_prueba=False):
                 str(ruta),
                 imagen["texto"],
                 imagen["confianza"],
-                motor_ocr(imagen)
+                motor_ocr(imagen),
+                vistas[indice]
             )
         )
 
@@ -201,9 +296,10 @@ def guardar_detecciones(conexion, analisis_id, resultado, ids_imagenes):
                 imagen_id,
                 codigo_regla,
                 valor,
-                estado
+                estado,
+                observacion
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 analisis_id,
@@ -214,7 +310,8 @@ def guardar_detecciones(conexion, analisis_id, resultado, ids_imagenes):
                     if regla["valor"] is not None
                     else None
                 ),
-                regla["estado"]
+                regla["estado"],
+                regla.get("observacion")
             )
         )
 
@@ -317,6 +414,41 @@ def obtener_analisis_abierto(conexion, analisis_id, usuario):
     return analisis
 
 
+def imagenes_guardadas(conexion, analisis_id):
+    return conexion.execute(
+        """
+        SELECT id, ruta_archivo, texto_ocr, confianza_ocr, vista
+        FROM imagenes
+        WHERE analisis_id = ?
+        ORDER BY id
+        """,
+        (analisis_id,)
+    ).fetchall()
+
+
+def datos_guardados(conexion, analisis_id) -> dict:
+    fila = conexion.execute(
+        f"SELECT {', '.join(CAMPOS_DATOS)} FROM analisis WHERE id = ?",
+        (analisis_id,)
+    ).fetchone()
+    return datos_de(fila)
+
+
+def ocr_guardado(filas) -> dict:
+    """Texto ya leído de cada foto, para no volver a pasarla por el OCR."""
+
+    return {
+        fila["ruta_archivo"]: {
+            "texto": fila["texto_ocr"] or "",
+            "confianza": fila["confianza_ocr"],
+            "version": "guardado",
+            "psm": None,
+            "puntuacion": None,
+        }
+        for fila in filas
+    }
+
+
 @router.post("/")
 def crear_analisis():
     """
@@ -338,6 +470,8 @@ def crear_analisis():
 async def analizar_fotografias(
     archivos: List[UploadFile] = File(...),
     es_prueba: bool = Form(False),
+    datos: str | None = Form(None),
+    vistas: str | None = Form(None),
     usuario: dict = Depends(usuario_actual)
 ):
     """
@@ -347,6 +481,9 @@ async def analizar_fotografias(
 
     es_prueba: guardarlo en el bloque de pruebas
     (solo mientras las pruebas estén activas).
+
+    datos: JSON con los datos del formato CRT (DatosDeclarados).
+    vistas: JSON con la vista de cada foto, en el mismo orden.
     """
 
     if not archivos:
@@ -354,6 +491,9 @@ async def analizar_fotografias(
             status_code=400,
             detail="Debes enviar al menos una imagen."
         )
+
+    datos_declarados = leer_datos(datos)
+    vistas_fotos = leer_vistas(vistas, len(archivos))
 
     rutas_guardadas = []
 
@@ -377,7 +517,9 @@ async def analizar_fotografias(
         # el servidor (si no, /salud deja de responder y la app lo da por apagado).
         resultado = await run_in_threadpool(
             analizar_imagenes,
-            rutas_guardadas
+            rutas_guardadas,
+            vistas=vistas_fotos,
+            datos=datos_declarados
         )
 
         # ==========================================
@@ -391,7 +533,9 @@ async def analizar_fotografias(
                 resultado,
                 rutas_guardadas,
                 usuario["id"],
-                es_prueba=es_prueba and pruebas_activas()
+                es_prueba=es_prueba and pruebas_activas(),
+                datos=datos_declarados,
+                vistas=vistas_fotos
             )
 
         # ==========================================
@@ -465,6 +609,9 @@ def obtener_historial(
                 a.estado,
                 a.es_prueba,
                 a.fecha_creacion,
+                a.marca,
+                a.clase,
+                a.destino,
                 (
                     SELECT GROUP_CONCAT(DISTINCT i.motor_ocr)
                     FROM imagenes i
@@ -484,7 +631,7 @@ def obtener_historial(
                     SELECT COUNT(*)
                     FROM detecciones d
                     WHERE d.analisis_id = a.id
-                      AND d.estado = 'Detectado'
+                      AND d.estado IN ('Detectado', 'No aplica')
                 ) AS total_detectados
             FROM analisis a
             JOIN usuarios u ON u.id = a.usuario_id
@@ -541,7 +688,15 @@ def obtener_analisis(
                 u.nombre AS usuario,
                 a.estado,
                 a.es_prueba,
-                a.fecha_creacion
+                a.fecha_creacion,
+                a.destino,
+                a.empresa,
+                a.marca,
+                a.categoria,
+                a.clase,
+                a.contenido_ml,
+                a.alcohol,
+                a.aditivos
             FROM analisis a
             JOIN usuarios u ON u.id = a.usuario_id
             WHERE a.id = ?
@@ -558,6 +713,7 @@ def obtener_analisis(
                 texto_ocr,
                 confianza_ocr,
                 motor_ocr,
+                vista,
                 fecha_carga
             FROM imagenes
             WHERE analisis_id = ?
@@ -574,6 +730,7 @@ def obtener_analisis(
                 r.requisito,
                 d.valor,
                 d.estado,
+                d.observacion,
                 d.imagen_id,
                 i.nombre_archivo AS imagen_evidencia,
                 d.fecha_deteccion
@@ -606,11 +763,14 @@ def obtener_analisis(
             (analisis_id,)
         ).fetchall()
 
+        dictamenes = consultar_dictamenes(conexion, analisis_id)
+
     return {
         "analisis": dict(analisis),
         "imagenes": [dict(imagen) for imagen in imagenes],
         "detecciones": [dict(deteccion) for deteccion in detecciones],
-        "evidencias": [dict(evidencia) for evidencia in evidencias]
+        "evidencias": [dict(evidencia) for evidencia in evidencias],
+        "dictamenes": dictamenes
     }
 
 # ==========================================
@@ -669,6 +829,7 @@ def eliminar_analisis(analisis_id: int):
 async def agregar_evidencia(
     analisis_id: int,
     archivos: List[UploadFile] = File(...),
+    vistas: str | None = Form(None),
     usuario: dict = Depends(usuario_actual)
 ):
     """
@@ -678,8 +839,11 @@ async def agregar_evidencia(
     Solo se ejecuta OCR sobre las fotos nuevas;
     las anteriores reutilizan el texto guardado.
     Las revisiones manuales se conservan.
+
+    vistas: JSON con la vista de cada foto nueva.
     """
 
+    vistas_nuevas = leer_vistas(vistas, len(archivos))
     rutas_nuevas = []
 
     try:
@@ -692,31 +856,13 @@ async def agregar_evidencia(
                 usuario
             )
 
-            anteriores = conexion.execute(
-                """
-                SELECT id, ruta_archivo, texto_ocr, confianza_ocr
-                FROM imagenes
-                WHERE analisis_id = ?
-                ORDER BY id
-                """,
-                (analisis_id,)
-            ).fetchall()
+            anteriores = imagenes_guardadas(conexion, analisis_id)
+            datos = datos_guardados(conexion, analisis_id)
 
         for archivo in archivos:
             rutas_nuevas.append(
                 guardar_archivo(archivo)
             )
-
-        ocr_previo = {
-            fila["ruta_archivo"]: {
-                "texto": fila["texto_ocr"] or "",
-                "confianza": fila["confianza_ocr"] or 0.0,
-                "version": "guardado",
-                "psm": None,
-                "puntuacion": None,
-            }
-            for fila in anteriores
-        }
 
         rutas = [
             fila["ruta_archivo"]
@@ -726,7 +872,9 @@ async def agregar_evidencia(
         resultado = await run_in_threadpool(
             analizar_imagenes,
             rutas,
-            ocr_previo=ocr_previo
+            ocr_previo=ocr_guardado(anteriores),
+            vistas=[fila["vista"] for fila in anteriores] + vistas_nuevas,
+            datos=datos
         )
 
         with obtener_conexion() as conexion:
@@ -751,9 +899,10 @@ async def agregar_evidencia(
                         ruta_archivo,
                         texto_ocr,
                         confianza_ocr,
-                        motor_ocr
+                        motor_ocr,
+                        vista
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         analisis_id,
@@ -761,7 +910,8 @@ async def agregar_evidencia(
                         ruta,
                         imagen["texto"],
                         imagen["confianza"],
-                        motor_ocr(imagen)
+                        motor_ocr(imagen),
+                        vistas_nuevas[indice - len(anteriores)]
                     )
                 )
 
@@ -1015,3 +1165,186 @@ def consultar_revisiones_manuales(
     }
 
 
+
+
+# ==========================================
+# 10. DATOS DEL FORMATO DESPUÉS DE LAS FOTOS
+# ==========================================
+
+@router.put("/{analisis_id}/datos")
+def actualizar_datos(
+    analisis_id: int,
+    datos: DatosDeclarados,
+    usuario: dict = Depends(usuario_actual)
+):
+    """
+    Capturar o corregir los datos del formato CRT
+    después de tomar las fotos.
+
+    Vuelve a evaluar las reglas con el texto ya leído:
+    no repite el OCR. Los dictámenes se conservan.
+    """
+
+    valores = datos.model_dump()
+
+    with obtener_conexion() as conexion:
+
+        obtener_analisis_abierto(conexion, analisis_id, usuario)
+
+        conexion.execute(
+            f"""
+            UPDATE analisis
+            SET {", ".join(f"{campo} = ?" for campo in CAMPOS_DATOS)}
+            WHERE id = ?
+            """,
+            (*(valores[campo] for campo in CAMPOS_DATOS), analisis_id)
+        )
+
+        filas = imagenes_guardadas(conexion, analisis_id)
+
+        resultado = analizar_imagenes(
+            [fila["ruta_archivo"] for fila in filas],
+            ocr_previo=ocr_guardado(filas),
+            vistas=[fila["vista"] for fila in filas],
+            datos=valores
+        )
+
+        conexion.execute(
+            "DELETE FROM detecciones WHERE analisis_id = ?",
+            (analisis_id,)
+        )
+
+        guardar_detecciones(
+            conexion,
+            analisis_id,
+            resultado,
+            {indice + 1: fila["id"] for indice, fila in enumerate(filas)}
+        )
+
+    return {
+        "id_analisis": analisis_id,
+        "datos": valores,
+        "reglas": resultado["reglas"]
+    }
+
+
+# ==========================================
+# 11. DICTAMEN DEL FORMATO CRT (MO-RV/20)
+# ==========================================
+
+class DictamenEntrada(BaseModel):
+    codigo_regla: str = Field(min_length=1)
+    cumple: Literal["SI", "NO", "NA"]
+    informacion_incorrecta: str = Field(default="", max_length=1000)
+    informacion_correcta: str = Field(default="", max_length=1000)
+    observaciones: str = Field(default="", max_length=2000)
+
+
+def consultar_dictamenes(conexion, analisis_id) -> list:
+    """Historial de dictámenes, del más reciente al más antiguo."""
+
+    return [
+        dict(fila)
+        for fila in conexion.execute(
+            """
+            SELECT
+                dc.id,
+                dc.codigo_regla,
+                r.requisito,
+                dc.cumple,
+                dc.informacion_incorrecta,
+                dc.informacion_correcta,
+                dc.observaciones,
+                dc.usuario_id,
+                u.nombre AS usuario,
+                dc.fecha
+            FROM dictamenes dc
+            JOIN reglas r ON r.codigo = dc.codigo_regla
+            JOIN usuarios u ON u.id = dc.usuario_id
+            WHERE dc.analisis_id = ?
+            ORDER BY dc.id DESC
+            """,
+            (analisis_id,)
+        )
+    ]
+
+
+@router.post("/{analisis_id}/dictamen", status_code=201)
+def guardar_dictamen(
+    analisis_id: int,
+    dictamen: DictamenEntrada,
+    usuario: dict = Depends(usuario_actual)
+):
+    """
+    Registrar lo que marca el inspector en un renglón
+    del formato. No modifica las detecciones automáticas.
+
+    Cuando no cumple (NO), el formato pide citar cómo
+    debe decir la etiqueta (nota *** del MO-RV/20).
+    """
+
+    codigo = dictamen.codigo_regla.strip().upper()
+    correcta = dictamen.informacion_correcta.strip()
+
+    if dictamen.cumple == "NO" and not correcta:
+        raise HTTPException(
+            status_code=422,
+            detail="Si no cumple, indica la información correcta (cómo debe decir)."
+        )
+
+    with obtener_conexion() as conexion:
+
+        obtener_analisis_abierto(conexion, analisis_id, usuario)
+
+        evaluada = conexion.execute(
+            """
+            SELECT 1 FROM detecciones
+            WHERE analisis_id = ? AND codigo_regla = ?
+            """,
+            (analisis_id, codigo)
+        ).fetchone()
+
+        if evaluada is None:
+            raise HTTPException(
+                status_code=400,
+                detail="El requisito indicado no pertenece a este análisis."
+            )
+
+        conexion.execute(
+            """
+            INSERT INTO dictamenes (
+                analisis_id, codigo_regla, usuario_id, cumple,
+                informacion_incorrecta, informacion_correcta, observaciones
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                analisis_id,
+                codigo,
+                usuario["id"],
+                dictamen.cumple,
+                dictamen.informacion_incorrecta.strip(),
+                correcta,
+                dictamen.observaciones.strip()
+            )
+        )
+
+        dictamenes = consultar_dictamenes(conexion, analisis_id)
+
+    return {
+        "mensaje": "Dictamen guardado.",
+        "dictamen": dictamenes[0],
+        "dictamenes": dictamenes
+    }
+
+
+@router.get("/{analisis_id}/dictamen")
+def listar_dictamenes(
+    analisis_id: int,
+    usuario: dict = Depends(usuario_actual)
+):
+    with obtener_conexion() as conexion:
+        obtener_analisis_visible(conexion, analisis_id, usuario)
+        dictamenes = consultar_dictamenes(conexion, analisis_id)
+
+    return {"total": len(dictamenes), "dictamenes": dictamenes}
