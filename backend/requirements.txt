@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 python-dotenv
+argon2-cffi==23.1.0
 opencv-python-headless
 pytesseract
 pillow

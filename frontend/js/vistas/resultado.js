@@ -36,8 +36,9 @@ export function vistaResultado(raiz, id) {
     .then(({ analisis, revisiones }) => raiz.isConnected && pintarReporte(raiz, analisis, revisiones))
     .catch(err => {
       if (!raiz.isConnected) return;
+      if (err.sesionCerrada) return;
       noEncontrado(raiz, err.status === 404
-        ? `El análisis #${esc(id)} no existe; puede que se haya eliminado.`
+        ? `El análisis #${esc(id)} no existe o no está disponible para tu cuenta.`
         : "No se pudo conectar con el servidor. Verifica que el backend esté encendido e inténtalo de nuevo.");
     });
 }
@@ -240,9 +241,9 @@ function pintarReporte(raiz, analisis, revisiones = [], antes = null) {
       <a href="#/" class="volver no-imprimir">${icono("i-arrow-left")}Inicio</a>
       <div class="encabezado-vista__fila">
         <div>
-          <p class="eyebrow">Reporte de análisis${analisis.ejemplo ? " · Ejemplo" : ""}</p>
+          <p class="eyebrow">Reporte de análisis${analisis.ejemplo ? " · Ejemplo" : ""}${analisis.esPrueba ? " · Prueba" : ""}</p>
           <h1>${analisis.ejemplo ? "Tequila de muestra" : `Análisis #${esc(analisis.id)}`}</h1>
-          <p class="texto-suave">${fecha(analisis.fecha)} · ${imagenes.length} fotografía(s) · ${esc(analisis.estado)}</p>
+          <p class="texto-suave">${analisis.autor ? `Analizado por ${esc(analisis.autor)} · ` : ""}${fecha(analisis.fecha)} · ${imagenes.length} fotografía(s) · ${esc(analisis.estado)}</p>
         </div>
         <div class="acciones no-imprimir">
           ${ctx.editable ? `<button type="button" class="btn btn--secundario" data-accion="finalizar">${icono("i-check")}Finalizar análisis</button>` : ""}
