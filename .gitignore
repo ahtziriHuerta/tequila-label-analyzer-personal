@@ -16,6 +16,21 @@ backend/uploads/
 *.jpeg
 *.png
 !frontend/assets/**
+# Íconos de la PWA, logo y portada sí se suben
+!frontend/img/**
+# …pero no fotos originales: se suben ya convertidas a .webp
+frontend/img/**/*.jpg
+frontend/img/**/*.jpeg
+frontend/img/**/*.JPG
+frontend/img/**/*.JPEG
+frontend/img/**/*.heic
+frontend/img/**/*.HEIC
+
+# Instaladores y ejecutables
+*.exe
+*.msi
+*.dmg
+*.pkg
 
 # OS / editor
 .DS_Store
